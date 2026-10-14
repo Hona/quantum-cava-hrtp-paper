@@ -1,9 +1,12 @@
 # Linear-Time Quantum Circuit Superoptimization (`CAVA + HRTP + WHD`)
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23359809.svg)](https://doi.org/10.5281/zenodo.23359809)
+
 Full manuscript, formal proofs (Lean 4 + exact statevector unitary verification), and reference optimizer for:
 
 > **Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction**  
-> Luke Parker, Anomaly (2026)
+> Luke Parker, Anomaly (2026)  
+> DOI: [`10.5281/zenodo.23359809`](https://doi.org/10.5281/zenodo.23359809)
 
 ---
 

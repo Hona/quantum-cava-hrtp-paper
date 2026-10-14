@@ -6,7 +6,8 @@ authors:
     given-names: "Luke"
     affiliation: "Anomaly"
 date-released: 2026-10-14
-version: "1.0.0"
+version: "1.0.1"
+doi: "10.5281/zenodo.23359809"
 license: "MIT"
 repository-code: "https://github.com/Hona/quantum-cava-hrtp-paper"
 keywords:
