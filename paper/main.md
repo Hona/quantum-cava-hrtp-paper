@@ -1,7 +1,7 @@
 # Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction
 
 **Luke Parker**  
-*Independent Researcher*
+*Anomaly*
 
 ---
 

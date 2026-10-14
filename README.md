@@ -3,7 +3,7 @@
 Full manuscript, formal proofs (Lean 4 + exact $2^n \times 2^n$ unitary verification), reference optimizer, and interactive artifact for:
 
 > **Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction**  
-> Luke Parker (2026)
+> Luke Parker, Anomaly (2026)
 
 ---
 
