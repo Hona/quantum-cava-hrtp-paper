@@ -41,15 +41,21 @@ theorem unreduced_gf128_drifts (a0 a0_sq a0_a1 a2 : BitVec 128)
   bv_decide
 
 /-- The 8-state quarter-turn phase exponent table of the 9-gate Hermitian `RCCX` relative phase
-    `Φ(c1, c2, t)` in `ZMod 8` (multiples of π/4):
-    |000⟩ ↦ 0, |001⟩ ↦ 0, |010⟩ ↦ 0, |011⟩ ↦ +2 (+i),
-    |100⟩ ↦ 0, |101⟩ ↦ +4 (-1), |110⟩ ↦ 0, |111⟩ ↦ +6 (-i). -/
+    `Φ(c1, c2, t)` in `ZMod 8` (multiples of π/4) ordered as `|c1 c2 t⟩`:
+    |000⟩ ↦ 0, |001⟩ ↦ 0, |010⟩ ↦ 0, |011⟩ ↦ 0,
+    |100⟩ ↦ 0, |101⟩ ↦ +4 (-1), |110⟩ ↦ +2 (+i), |111⟩ ↦ +6 (-i). -/
 def rccxPhaseEighths (c1 c2 t : Bool) : BitVec 3 :=
   match c1, c2, t with
   | true,  true,  false => 2#3  -- +i  (e^{i 2π/4})
   | true,  true,  true  => 6#3  -- -i  (e^{i 6π/4})
   | true,  false, true  => 4#3  -- -1  (e^{i 4π/4})
   | _,     _,     _     => 0#3  -- +1
+
+/-- Theorem 6.1(2) Phase-Swap Symmetry (`CCX · Φ = Φ† · CCX`):
+    Flipping `t` when `c1 && c2` negates `rccxPhaseEighths` modulo 8 on all 8 basis states. -/
+theorem rccx_ccx_phase_commutation (c1 c2 t : Bool) :
+    rccxPhaseEighths c1 c2 (if c1 && c2 then !t else t) = (0#3 - rccxPhaseEighths c1 c2 t) := by
+  cases c1 <;> cases c2 <;> cases t <;> rfl
 
 /-- Compositional HRTP Phase Cancellation:
     When the first 9-gate `RCCX` emits relative phase `+rccxPhaseEighths(c1, c2, t)` at post-state `(c1, c2, t)`

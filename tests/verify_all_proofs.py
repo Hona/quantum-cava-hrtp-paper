@@ -196,7 +196,33 @@ def verify_benchmarks_and_soundness() -> None:
             )
 
 
+def verify_theorem_6_1_rccx_matrix() -> None:
+    # In 3-qubit basis |c1 c2 t> where q[2]=c1 (MSB), q[1]=c2, q[0]=t (LSB):
+    rccx_seq = [
+        ("h", "", ("q[0]",)),
+        ("t", "", ("q[0]",)),
+        ("cx", "", ("q[1]", "q[0]")),
+        ("tdg", "", ("q[0]",)),
+        ("cx", "", ("q[2]", "q[0]")),
+        ("t", "", ("q[0]",)),
+        ("cx", "", ("q[1]", "q[0]")),
+        ("tdg", "", ("q[0]",)),
+        ("h", "", ("q[0]",)),
+    ]
+    ccx_seq = [("ccx", "", ("q[2]", "q[1]", "q[0]"))]
+    R = np.column_stack([run_statevector(rccx_seq, np.eye(8, dtype=complex)[j], 3) for j in range(8)])
+    CCX = np.column_stack([run_statevector(ccx_seq, np.eye(8, dtype=complex)[j], 3) for j in range(8)])
+    Phi = np.diag([1, 1, 1, 1, 1, -1, 1j, -1j])
+
+    assert np.allclose(R, R.conj().T, atol=1e-12), "R must be Hermitian (R^dagger = R)"
+    assert np.allclose(R @ R, np.eye(8), atol=1e-12), "R must be involutory (R^2 = I)"
+    assert np.allclose(R, CCX @ Phi, atol=1e-12), "R must equal CCX * Phi"
+    assert np.allclose(R, Phi.conj().T @ CCX, atol=1e-12), "R must equal Phi^dagger * CCX"
+    print("[PASS] Theorem 6.1: 8x8 Hermitian RCCX matrix factorization (R = CCX*Phi = Phi^dagger*CCX) verified.")
+
+
 if __name__ == "__main__":
     verify_frobenius_gf128_theorem()
+    verify_theorem_6_1_rccx_matrix()
     verify_benchmarks_and_soundness()
     print("ALL FORMAL VERIFICATION CHECKS PASSED.")
