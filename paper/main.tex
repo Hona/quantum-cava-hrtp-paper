@@ -1,153 +1,439 @@
-\documentclass[acmsmall,screen,nonacm]{acmart}
+\documentclass[11pt,a4paper]{article}
 
-\usepackage{amsmath,amssymb,amsfonts}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
 \usepackage{booktabs}
+\usepackage{hyperref}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  citecolor=blue,
+  urlcolor=blue
+}
 
 \newcommand{\llbracket}{[\![}
 \newcommand{\rrbracket}{]\!]}
 
-\title{Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
 
-\author{Luke Parker}
-\affiliation{%
-  \institution{Anomaly}
-  \country{Australia}
-}
+\title{\textbf{Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction}}
 
-\begin{abstract}
-Fault-tolerant quantum computation (FTQC) over the universal Clifford+$T$ gate set is bottlenecked by the physical cost of $T$ gates, each of which requires expensive magic-state distillation protocols, and by two-qubit $\mathit{CNOT}$ gates, which dominate logical routing and surface-code lattice-surgery overhead. Recent advances at the intersection of programming languages and quantum compilation have attacked this bottleneck from two directions: high-level domain-specific languages such as \textsc{Cobble} (PLDI 2026), which compile matrix algebra over block encodings into Quantum Singular Value Transformation (QSVT) circuits, and linear-time low-level circuit optimizers such as \textsc{tzap} (arXiv:2605.13929; IACR ePrint 2026/2115), which combine randomized abstract interpretation (\texttt{PhaseFoldRand}) with bounded-window Minimal Unitary Representative Map (\texttt{MURM}) peephole superoptimization (\texttt{SuperOpt}).
+\author{Luke Parker \\ \textit{Anomaly}}
 
-In this paper, we uncover four foundational structural blind spots across this stack---including a counterexample to \textsc{Cobble}'s cost-monotonicity theorem (Theorem 6.3), an exponential $2^{k-1}-1$ multi-controlled Toffoli blowup paired with a pre-order ancilla index shift that blinds bounded-window superoptimizers, and a failure of Boolean idempotence ($x^2 = x$) in \textsc{tzap}'s $\mathrm{GF}(2^{128})$ nonlinear fingerprint domain---and introduce a four-pass \textbf{linear-time ($O(n)$) quantum circuit optimization pipeline} (\textsc{CAVA} + \textsc{HRTP} + \textsc{WHD}) that resolves all four limitations without requiring precomputed superoptimization tables. Across the complete \texttt{Cobble-Rz} and \texttt{Feynman} benchmark suites, our $O(n)$ pipeline outperforms \texttt{tzap -O1} and \texttt{tzap -O3} (with a 200,000-entry MURM): on the 142,910-gate Hamiltonian simulation circuit from Figure 1 of ePrint 2026/2115, we reduce total gates by \textbf{91.96\%} (to \textbf{11,491} gates vs.\ \textbf{15,720} for \texttt{tzap -O3}), on \texttt{ols-ridge} (353,226 gates) by \textbf{94.92\%} (to \textbf{17,930} gates vs.\ \textbf{$\sim$25,000}), on \texttt{feynman/hwb12} (514,412 gates) by \textbf{100,426 more gates} and \textbf{62,226 more CNOTs} than \texttt{tzap}, and on \texttt{barenco\_tof\_10} to \textbf{72 $T$-gates} (vs.\ \textbf{100 $T$-gates} in Feynman, VOQC, PyZX, and tzap).
-\end{abstract}
+\date{October 2026}
 
 \begin{document}
 \maketitle
 
-\section{Introduction}
-Quantum algorithms for Hamiltonian simulation, linear systems, regression, and cryptanalysis promise super-polynomial to exponential speedups over classical computation~\cite{gilyen2019qsvt,shor1994}. Executing these algorithms at utility scale requires fault-tolerant quantum computation (FTQC) encoded over error-correcting codes such as the surface code, where non-Clifford $T = R_z(\pi/4)$ gates require costly magic-state distillation factories~\cite{bravyi2005}. Minimizing both $T$-gate count and two-qubit $\mathit{CNOT}$ count in compiled circuits of $10^5$ to $10^9$ gates is therefore a central problem in quantum programming languages.
+\begin{abstract}
+Fault-tolerant quantum computation (FTQC) over the universal Clifford+$T$ gate set is bottlenecked by the physical cost of $T$ gates, each of which requires expensive magic-state distillation protocols, and by two-qubit $\mathit{CNOT}$ gates, which dominate logical routing and surface-code lattice-surgery overhead. Recent advances at the intersection of programming languages and quantum compilation have attacked this bottleneck from two directions: high-level domain-specific languages such as \textsc{Cobble} (PLDI 2026), which compile matrix algebra over block encodings into Quantum Singular Value Transformation (QSVT) circuits, and linear-time low-level circuit optimizers such as \textsc{tzap} (arXiv:2605.13929; IACR ePrint 2026/2115), which combine randomized abstract interpretation (\texttt{PhaseFoldRand}) with bounded-window Minimal Unitary Representative Map (\texttt{MURM}) peephole superoptimization (\texttt{SuperOpt}).
 
-Recent work has advanced quantum compilation along two complementary axes:
+In this paper, we uncover four foundational structural blind spots across this stack---including a counterexample to \textsc{Cobble}'s cost-monotonicity theorem (Theorem 6.3), an exponential $2^{k-1}-1$ multi-controlled Toffoli blowup paired with a pre-order ancilla index shift that blinds bounded-window superoptimizers, and a failure of Boolean idempotence ($x^2 = x$) in \textsc{tzap}'s $\mathrm{GF}(2^{128})$ nonlinear fingerprint domain---and introduce a four-pass \textbf{linear-time ($O(n)$) quantum circuit optimization pipeline} (\textsc{CAVA} + \textsc{HRTP} + \textsc{WHD}) that resolves all four limitations without requiring precomputed superoptimization tables:
+(1) \emph{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ and Truth-Table Abstract Interpretation (\textsc{WHD})}, which exploits the linearity of the Frobenius endomorphism ($z \mapsto z^2$) in characteristic $2$ to subtract $\mathrm{field\_mul}(v_{\mathrm{shared}}, v_{\mathrm{shared}}) \oplus v_{\mathrm{shared}}$ for the intersection of linear supports $S_1 \cap S_2$, reducing $\mathrm{GF}(2^{128})$ field products modulo the Boolean ideal $\langle x_i^2 - x_i \rangle$ in $O(1)$ time while preserving the Schwartz--Zippel $d/2^{128}$ soundness bound;
+(2) \emph{Universal Algebraic Toffoli Lifting ($\mathit{CCZ}\cdot H \equiv H\cdot \mathit{CCX}$)}, which recovers $100\%$ of pre-decomposed 15-gate Toffoli operations in a single $O(n)$ scan even when opening Hadamards commute across disjoint wires;
+(3) \emph{Canonical Ancilla V-Tree Alignment (\textsc{CAVA})}, which tracks live clean-ancilla AND-scopes and aliases inner shifted V-ladders onto existing parent ancillas in $O(n)$ time, eliminating $75\%$ of surviving Toffoli gates on \textsc{Cobble}'s flagship Hamiltonian simulation benchmark ($1{,}645 \to 413$ $\mathit{CCX}$s); and
+(4) \emph{Hermitian 9-Gate Relative-Phase Truth-Table Pairing (\textsc{HRTP})}, which constructs a strictly Hermitian and involutory 9-gate, 4-$T$, 3-$\mathit{CNOT}$ relative-phase Toffoli operator $R(c_1, c_2, t)$ ($R^\dagger = R, R^2 = I$) and pairs compute/uncompute Toffolis across arbitrary scratchpad reuse while annihilating $H\cdot H$ and $T^\dagger\cdot T$ at shared-target seams.
+
+Across the complete \texttt{Cobble-Rz} and \texttt{Feynman} benchmark suites, our $O(n)$ pipeline---using \textbf{zero MURM lookup tables}---outperforms \texttt{tzap -O1} and \texttt{tzap -O3} (with a 200,000-entry MURM superoptimizer): on the 142,910-gate Hamiltonian simulation circuit from Figure 1 of ePrint 2026/2115, we reduce total gates by \textbf{91.96\%} (to \textbf{11,491} gates, vs.\ \textbf{15,720} for \texttt{tzap -O3}, a \textbf{26.9\% reduction in remaining gates}), on \texttt{ols-ridge} (353,226 gates) by \textbf{94.92\%} (to \textbf{17,930} gates vs.\ \textbf{$\sim$25,000}), on \texttt{feynman/hwb12} (514,412 gates) by \textbf{100,426 more gates} and \textbf{62,226 more CNOTs} than \textsc{tzap}, and on \texttt{barenco\_tof\_10} to \textbf{72 $T$-gates} (vs.\ \textbf{100 $T$-gates} in Feynman, VOQC, PyZX, and tzap).
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Quantum algorithms for Hamiltonian simulation, linear systems, regression, and cryptanalysis promise super-polynomial to exponential speedups over classical computation~\cite{gilyen2019qsvt,low2019qsp,shor1994}. Executing these algorithms at utility scale, however, requires \emph{fault-tolerant quantum computation} (FTQC) encoded over error-correcting codes such as the surface code~\cite{fowler2012surface}. In standard FTQC architectures, Clifford operations ($H, S, \mathit{CNOT}$) admit transversal or low-overhead lattice-surgery implementations, whereas non-Clifford phase rotations---specifically the $T = R_z(\pi/4)$ gate---require \emph{magic-state distillation} factories~\cite{bravyi2005,litinski2019} that consume the vast majority of physical qubits and spacetime volume. Minimizing both $T$-gate count and two-qubit $\mathit{CNOT}$ count in compiled circuits of $10^5$ to $10^9$ gates is therefore a central problem in quantum programming languages and compiler design.
+
+\subsection{The 2026 Quantum Compilation Landscape and Its Blind Spots}
+
+Recent work in the programming languages community has advanced quantum compilation along two complementary axes:
 \begin{itemize}
-  \item \textbf{High-Level Block-Encoding Compilation (\textsc{Cobble}, PLDI 2026):} Yuan~\cite{yuan2026cobble} introduced \textsc{Cobble}, a domain-specific language in which matrices are represented as unitary block encodings $U = \begin{bmatrix} A/\alpha & \cdot \\ \cdot & \cdot \end{bmatrix}$ parameterized by subnormalization $\alpha \ge \|A\|_2$. By applying sum fusion and polynomial fusion, \textsc{Cobble} compiles matrix polynomials via QSVT, achieving $2.6\times$--$25.4\times$ runtime cost reductions.
-  \item \textbf{Linear-Time Randomized Phase Folding and MURM Superoptimization (\textsc{tzap}, 2026):} Albarghouthi~\cite{albarghouthi2026rand,albarghouthi2026murm} introduced \textsc{tzap}, a Rust optimizer verified in Lean 4 that combines \texttt{PhaseFoldRand} (a linear-time $O(n)$ abstract interpretation propagating 128-bit fingerprints through $\{X, \mathit{CNOT}, \mathit{CCX}\}$ gates) with \texttt{SuperOpt} (a peephole superoptimizer backed by a 200,000-entry Minimal Unitary Representative Map over 3-qubit windows up to $\ell = 25$ gates).
+  \item \textbf{High-Level Block-Encoding Compilation (\textsc{Cobble}, PLDI 2026):} Yuan~\cite{yuan2026cobble} introduced \textsc{Cobble}, a functional domain-specific language for quantum computational linear algebra in which matrices are represented as unitary \emph{block encodings} $U = \begin{bmatrix} A/\alpha & \cdot \\ \cdot & \cdot \end{bmatrix}$ parameterized by a subnormalization factor $\alpha \ge \|A\|_2$. By applying \emph{sum fusion} and \emph{polynomial fusion}, \textsc{Cobble} rewrites nested Linear Combinations of Unitaries (LCU) into symbolic polynomials compiled via the Quantum Singular Value Transformation (QSVT), achieving $2.6\times$--$25.4\times$ reductions in quantum runtime cost ($\text{Queries} \times \alpha$).
+  \item \textbf{Linear-Time Randomized Phase Folding and MURM Superoptimization (\textsc{tzap}, 2026):} Albarghouthi~\cite{albarghouthi2026rand,albarghouthi2026murm} introduced \textsc{tzap}, a Rust-based optimizer verified in Lean 4 that achieves $10^3\times$--$10^4\times$ compilation speedups over VOQC~\cite{hietala2021}, PyZX~\cite{kissinger2020}, QuiZX, Feynman~\cite{amy2014}, and Quartz~\cite{xu2022quartz}. \textsc{tzap} combines two core passes: (i) \texttt{PhaseFoldRand}, a linear-time $O(n)$ abstract interpretation that propagates random 128-bit fingerprints through $\{X, \mathit{CNOT}, \mathit{CCX}\}$ gates to merge distant $Z$-axis rotations in $O(1)$ hash-lookup time; and (ii) \texttt{SuperOpt}, a peephole superoptimizer backed by a precomputed 200,000-entry Minimal Unitary Representative Map (MURM) over 3-qubit connected windows of up to $\ell = 25$ gates.
 \end{itemize}
 
-By auditing the formal semantics, proofs, and source implementations of both systems across their shared benchmark suites (\texttt{feynman}, \texttt{cobble-rz}, and \texttt{cobble-t}), we uncovered four foundational structural blind spots and developed a four-pass $O(n)$ pipeline that resolves them:
+By auditing the formal semantics, proofs, and source implementations of both systems across their shared benchmark suites (\texttt{feynman}, \texttt{cobble-rz}, and \texttt{cobble-t}), we discovered \textbf{four critical theoretical and practical blind spots} that leave massive optimization potential unrealized---and, in certain regimes, cause existing passes to degrade circuit cost or fail to fold provably equivalent rotations:
+
 \begin{enumerate}
-  \item \textbf{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ \& Truth-Table Abstract Interpretation (\textsc{WHD}):} Exploits the characteristic-2 Frobenius endomorphism $(a \oplus b)^2 = a^2 \oplus b^2$ to subtract $\mathrm{field\_mul}(v_{\mathrm{shared}}, v_{\mathrm{shared}}) \oplus v_{\mathrm{shared}}$ for shared linear variables $S_1 \cap S_2$, restoring exact Boolean idempotence ($x_i^2 = x_i$) inside $\mathrm{GF}(2^{128})$ while preserving the Schwartz--Zippel $d/2^{128}$ collision bound.
-  \item \textbf{Universal Algebraic Toffoli Lifting ($\mathit{CCZ}\cdot H \equiv H\cdot \mathit{CCX}$):} Recovers $100\%$ of pre-decomposed 15-gate Toffolis in a single $O(n)$ pass using the exact identity $\mathit{CCZ}(c_1, c_2, t)\cdot H(t) \equiv H(t)\cdot \mathit{CCX}(c_1, c_2, t)$.
-  \item \textbf{Canonical Ancilla V-Tree Alignment (\textsc{CAVA}):} Eliminates the pre-order ancilla shift between adjacent $k$-controlled and $(k-1)$-controlled gates by aliasing inner balanced V-ladders onto live parent AND-ancillas, cutting surviving Toffolis by up to $75\%$.
-  \item \textbf{Hermitian 9-Gate Relative-Phase Truth-Table Pairing (\textsc{HRTP}):} Replaces paired compute/uncompute Toffolis across arbitrary scratchpad reuse with the 9-gate Hermitian operator $R(c_1, c_2, t) = H(t); T(t); \mathit{CX}(c_2,t); T^\dagger(t); \mathit{CX}(c_1,t); T(t); \mathit{CX}(c_2,t); T^\dagger(t); H(t)$ ($R^\dagger = R, R^2 = I$), annihilating $H\cdot H$ and $T^\dagger\cdot T$ at shared-target seams.
+  \item \textbf{Failure of Boolean Idempotence ($x^2 = x$) in $\mathrm{GF}(2^{128})$ Nonlinear Phase Folding (\textsc{tzap}):} To extend \texttt{PhaseFoldRand} from affine $\{\mathit{CNOT}, X\}$ circuits to nonlinear Toffoli ($\mathit{CCX}$) gates, \textsc{tzap} interprets each wire's 128-bit fingerprint as an element of the extension field $\mathrm{GF}(2^{128}) = \mathbb{F}_2[x]/(x^{128} + x^7 + x^2 + x + 1)$ and evaluates $\mathit{CCX}(c_1, c_2, t)$ via carry-less field multiplication: $\mathrm{val}(t) \leftarrow \mathrm{val}(t) \oplus \mathrm{field\_mul}(\mathrm{val}(c_1), \mathrm{val}(c_2))$. Crucially, however, quantum computational-basis wires range over $\mathbb{F}_2 = \{0,1\}$, where every wire satisfies the Boolean idempotence law $x^2 = x$ and complement annihilation $x(x \oplus 1) = 0$. In $\mathrm{GF}(2^{128})$, a random field draw $\alpha \notin \{0,1\}$ satisfies $\alpha^2 \neq \alpha$. Consequently, whenever two controls of a $\mathit{CCX}$ gate share an upstream linear dependency (such as after $\mathit{CNOT}(q_0, q_1)$ followed by $\mathit{CCX}(q_0, q_1, q_2)$), $\mathrm{field\_mul}(\alpha_0, \alpha_0 \oplus \alpha_1) = \alpha_0^2 \oplus \alpha_0\alpha_1$ injects a spurious $\alpha_0^2 \neq \alpha_0$ residue that permanently corrupts the wire's hash key and prevents valid phase folding (Section~\ref{sec:gf128-flaw}). Furthermore, formal degree tracking $\deg(c_1) + \deg(c_2)$ grows as the Fibonacci sequence $F_m$ on cascaded $\mathit{CCX}$ gates, exceeding \texttt{MAX\_TRACKED\_DEGREE} ($2^{32}$) after just 48 $\mathit{CCX}$ gates and forcing \textsc{tzap} to discard the wire's state.
+  \item \textbf{Hadamard Blindness on Pre-Decomposed Toffoli Corpora (\textsc{tzap}):} Although \textsc{tzap} implements transfer rules and commutation predicates for native \texttt{Gate::ccx} instructions, \textbf{none of the 55 benchmark files in \texttt{feynman}, \texttt{cobble-rz}, or \texttt{cobble-t} contain any native \texttt{ccx} instructions}. Every Toffoli gate in these corpora is pre-expanded into a 15-gate Clifford+$T$ decomposition $H(t)\cdot \mathit{CCZ}(c_1, c_2, t)\cdot H(t)$. When \texttt{PhaseFoldRand} encounters the opening $H(t)$ of a decomposed Toffoli, it draws an opaque \texttt{fresh\_fingerprint()}, severing the Boolean relationship $f_t' = f_t \oplus (f_{c_1} \cdot f_{c_2})$ on target wire $t$.
+  \item \textbf{Exponential $2^{k-1}-1$ Multi-Controlled Decomposition and Pre-Order Ancilla Shifting (\textsc{Cobble} \& \textsc{tzap}):} In \textsc{Cobble}'s QASM backend (\texttt{src/cobble/qasm.py:241}), $k$-controlled gates are lowered by recursively calling \texttt{\_decompose\_multi\_controlled} on the first $k-1$ controls (\texttt{compute\_and})---which \emph{includes its own full uncomputation}---and then appending \texttt{reversed(compute\_and)} (\texttt{uncompute\_and}). This recurrence $T(k) = 2T(k-1) + 1$ emits \textbf{$2^{k-1}-1$ Toffoli gates} instead of a linear $2k-3$ V-ladder. Worse still, because ancillas are allocated in \emph{pre-order} (before recursing on \texttt{controls[:-1]}), a 6-controlled gate assigns the innermost conjunction $c_0 \land c_1$ to \texttt{q[13]}, $c_0 \land c_1 \land c_2$ to \texttt{q[12]}, and so on, whereas an immediately adjacent 5-controlled gate on the \emph{same} controls assigns $c_0 \land c_1$ to \texttt{q[12]} and $c_0 \land c_1 \land c_2$ to \texttt{q[11]}. Because the physical ancilla indices shift by 1 across an 11-qubit cone, neither syntactic cancellation nor \textsc{tzap}'s 3-qubit MURM superoptimizer (\texttt{DEFAULT\_SUPEROPT\_QUBITS = 3}, \texttt{window\_gates = 25}) can recognize or cancel the duplicated ladders (Section~\ref{sec:ancilla-shift}).
+  \item \textbf{Violation of Cost-Monotonicity in Mixed-Parity Polynomial Fusion (\textsc{Cobble} Theorem 6.3):} Section 6 of the \textsc{Cobble} paper proves that its rewrite system is \emph{cost-nonincreasing} (\texttt{expr.optimize().total\_cost() <= expr.total\_cost()}), stating in Section 6.2 that when mixed-parity QSVT decomposition increases query count over Horner's method, \emph{``Cobble falls back to LCU or Horner's method otherwise, ensuring that cost is nonincreasing overall.''} We show by direct code inspection (\texttt{src/cobble/expr.py:540}) and concrete counterexample that \textsc{Cobble} implements no such cost check: on $E_d = (A + 0.5 A^2)\cdot A^d$, \texttt{E\_d.optimize()} unconditionally multiplies the factors into a mixed-parity polynomial $\mathrm{Poly}(A, x^{d+1} + 0.5 x^{d+2})$, which QSVT splits into an even pass of degree $d+2$ and an odd pass of degree $d+1$, increasing query count from $d+3$ to $2d+3$ (\textbf{+72.7\% higher runtime cost} at $d=8$). We also identify a soundness bug in \texttt{Prod.is\_hermitian()} (\texttt{expr.py:603}) that rejects Hermitian Gram matrices $X^\dagger X$ whenever $X$ is non-Hermitian.
 \end{enumerate}
 
+\subsection{Summary of Contributions}
+
+We make the following contributions:
+\begin{itemize}
+  \item \textbf{Disproofs and Formal Bug Audits (\S\ref{sec:counterexamples}):} We provide minimal, reproducible counterexamples and root-cause analyses for the $\mathrm{GF}(2^{128})$ non-idempotence bug in \textsc{tzap} and the cost-monotonicity refutation, Gram-matrix Hermiticity rejection, and $2^{k-1}-1$ pre-order ancilla shift in \textsc{Cobble}.
+  \item \textbf{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ and Idempotent Truth-Table Abstraction (\textsc{WHD}, \S\ref{sec:whd}):} We prove that tracking a 128-bit linear-support mask $S \subseteq \{0,\dots,127\}$ alongside each $\mathrm{GF}(2^{128})$ fingerprint enables exact multilinear quotient reduction $x_i^2 \mapsto x_i$ in $O(1)$ time via the characteristic-2 Frobenius identity $\bigoplus_{i \in S_1 \cap S_2} \alpha_i^2 = (\bigoplus_{i \in S_1 \cap S_2} \alpha_i)^2$, while preserving the Schwartz--Zippel $d/2^{128}$ collision bound. We pair this with a 256-bit truth-table domain ($\mathbf{b}_t \leftarrow \mathbf{b}_t \oplus (\mathbf{b}_{c_1} \mathbin{\&} \mathbf{b}_{c_2})$) that handles arbitrary-depth nonlinear circuits without degree overflow.
+  \item \textbf{Universal Algebraic Toffoli Lifting and Canonical Ancilla V-Tree Alignment (\textsc{CAVA}, \S\ref{sec:cava}):} We prove the local lifting identity $\mathit{CCZ}(c_1, c_2, t)\cdot H(t) \equiv H(t)\cdot \mathit{CCX}(c_1, c_2, t)$ and give an $O(n)$ algorithm (\textsc{CAVA}) that canonicalizes clean-ancilla V-ladders onto live parent AND-ancillas, eliminating $60\%$--$75\%$ of all surviving Toffoli gates in multi-controlled block-encoding circuits.
+  \item \textbf{Hermitian 9-Gate Relative-Phase Toffoli Pairing (\textsc{HRTP}) and Seam Annihilation (\S\ref{sec:hrtp}):} We prove that the 9-gate circuit $R(c_1, c_2, t) = H(t); T(t); \mathit{CX}(c_2,t); T^\dagger(t); \mathit{CX}(c_1,t); T(t); \mathit{CX}(c_2,t); T^\dagger(t); H(t)$ is Hermitian ($R^\dagger = R$), unitary ($R^2 = I$), and satisfies $R \cdot D \cdot R \equiv \mathit{CCX} \cdot D \cdot \mathit{CCX}$ across any subcircuit $D$ whenever the post-state truth-table signature of the first $\mathit{CCX}$ equals the pre-state signature of the second---even when the control or target wires are uncomputed and reused as scratchpads inside $D$.
+  \item \textbf{Cost-Monotonic Parity-Split Factoring for Block Encodings (\S\ref{sec:parity-split}):} We repair \textsc{Cobble}'s rewrite system by factoring maximal pure-parity monomials $P(x) = x^m Q(x)$, restoring cost monotonicity and reducing query complexity from $2d+3$ to $d+2$.
+  \item \textbf{Implementation, Verification, and Evaluation (\S\ref{sec:eval}):} We evaluate our pipeline on the full \texttt{Cobble-Rz} and \texttt{Feynman} benchmark suites, demonstrating substantial gate, $T$-count, and $\mathit{CNOT}$-count reductions over both \texttt{tzap -O1} and \texttt{tzap -O3} (200K MURM) at $O(n)$ speed, verified by exact $2^n \times 2^n$ unitary matrix simulation and Lean 4 formalization.
+\end{itemize}
+
 \section{Motivating Counterexamples and Root-Cause Analysis}
+\label{sec:counterexamples}
 
 \subsection{Non-Idempotence of $\mathrm{GF}(2^{128})$ Field Multiplication in \textsc{tzap}}
-Consider the 3-qubit, 7-gate circuit $\mathcal{C}_{\mathrm{shared}}$ from \textsc{tzap}'s test suite (\texttt{src/phase\_fold\_rand.rs:1360}):
+\label{sec:gf128-flaw}
+
+Consider the 3-qubit, 7-gate quantum circuit $\mathcal{C}_{\mathrm{shared}}$ from \textsc{tzap}'s own test suite (\texttt{src/phase\_fold\_rand.rs:1360}, \texttt{nonlinear\_shared\_control\_dependencies\_remain\_equivalent}):
 \[
   \mathcal{C}_{\mathrm{shared}} \;=\; T(q_2) \;;\; \mathit{CX}(q_0, q_1) \;;\; \mathit{CCX}(q_0, q_1, q_2) \;;\; \mathit{CX}(q_0, q_1) \;;\; \mathit{CCX}(q_0, q_1, q_2) \;;\; \mathit{CX}(q_0, q_2) \;;\; T^\dagger(q_2).
 \]
-Over $\{0,1\}^3$, the five middle gates map wire $q_2$ from $x_2$ to $x_2 \oplus x_0(x_0 \oplus x_1) \oplus x_0 x_1 \oplus x_0 = x_2 \oplus x_0^2 \oplus x_0 = x_2$ because $x_0^2 = x_0$ on $\{0,1\}$. Thus $T(q_2)$ and $T^\dagger(q_2)$ act on identical basis states and cancel to the identity ($0$ phase gates).
+Let $(x_0, x_1, x_2) \in \{0,1\}^3$ denote the initial computational-basis values of $(q_0, q_1, q_2)$. Tracing the exact classical reversible semantics of the five middle gates between $T(q_2)$ and $T^\dagger(q_2)$:
+\begin{enumerate}
+  \item At $T(q_2)$, wire $q_2$ holds $f_2^{(1)}(x) = x_2$.
+  \item After $\mathit{CX}(q_0, q_1)$, wire $q_1$ holds $x_0 \oplus x_1$.
+  \item After the first $\mathit{CCX}(q_0, q_1, q_2)$, wire $q_2$ holds:
+  \[
+    f_2^{(3)}(x) = x_2 \oplus x_0(x_0 \oplus x_1) = x_2 \oplus x_0^2 \oplus x_0 x_1 \;\stackrel{x_0^2 = x_0}{=}\; x_2 \oplus x_0 \oplus x_0 x_1.
+  \]
+  \item After the second $\mathit{CX}(q_0, q_1)$, wire $q_1$ returns to $(x_0 \oplus x_1) \oplus x_0 = x_1$.
+  \item After the second $\mathit{CCX}(q_0, q_1, q_2)$, wire $q_2$ holds:
+  \[
+    f_2^{(5)}(x) = (x_2 \oplus x_0 \oplus x_0 x_1) \oplus x_0 x_1 = x_2 \oplus x_0.
+  \]
+  \item After $\mathit{CX}(q_0, q_2)$, wire $q_2$ holds:
+  \[
+    f_2^{(6)}(x) = (x_2 \oplus x_0) \oplus x_0 = x_2.
+  \]
+\end{enumerate}
+Because $f_2^{(6)}(x) = x_2 = f_2^{(1)}(x)$ for every input $x \in \{0,1\}^3$ and the five middle gates form a self-inverse permutation that returns $(q_0, q_1, q_2)$ to $(x_0, x_1, x_2)$, Theorem 3.3 of Albarghouthi~\cite{albarghouthi2026rand} applies: $T(q_2)$ and $T^\dagger(q_2)$ act on identical basis states and \textbf{cancel completely to the identity ($0$ phase gates)}.
 
-In \textsc{tzap}'s $\mathrm{GF}(2^{128})$ domain, however, wire $q_2$ evaluates before $T^\dagger(q_2)$ to $\alpha_2 \oplus \alpha_0^2 \oplus \alpha_0 \neq \alpha_2$ for every $\alpha_0 \in \mathrm{GF}(2^{128}) \setminus \{0,1\}$, missing the fold with probability $1 - 2^{-127}$.
+Now trace what \textsc{tzap}'s \texttt{PhaseFoldRand} (\texttt{src/phase\_fold\_rand.rs:91--234}) computes on $\mathcal{C}_{\mathrm{shared}}$. \texttt{PhaseFoldRand} initializes each wire $q_i$ with an independent uniformly random 128-bit field element $\alpha_i \in \mathrm{GF}(2^{128})$. At Step 3, \texttt{phase\_fold\_rand.rs:209} computes:
+\[
+  \mathrm{val}^{(3)}(q_2) = \alpha_2 \oplus \mathrm{field\_mul}(\alpha_0, \alpha_0 \oplus \alpha_1) = \alpha_2 \oplus \alpha_0^2 \oplus \alpha_0\alpha_1.
+\]
+After Steps 4, 5, and 6, wire $q_2$'s fingerprint is:
+\[
+  \mathrm{val}^{(6)}(q_2) = (\alpha_2 \oplus \alpha_0^2 \oplus \alpha_0\alpha_1) \oplus \alpha_0\alpha_1 \oplus \alpha_0 = \alpha_2 \oplus \alpha_0^2 \oplus \alpha_0.
+\]
+In the finite field $\mathrm{GF}(2^{128})$, the polynomial $z^2 \oplus z = z(z \oplus 1) = 0$ has \textbf{only two roots}: $z = 0$ and $z = 1$. For every other element $\alpha_0 \in \mathrm{GF}(2^{128}) \setminus \{0,1\}$ (i.e., with probability $1 - 2^{-127}$), we have $\alpha_0^2 \oplus \alpha_0 \neq 0$, so:
+\[
+  \mathrm{val}^{(6)}(q_2) = \alpha_2 \oplus (\alpha_0^2 \oplus \alpha_0) \neq \alpha_2 = \mathrm{val}^{(1)}(q_2).
+\]
+Consequently, \texttt{fingerprint\_to\_group.get(\&key)} at Step 7 (\texttt{Tdg(q\_2)}) \textbf{misses} with probability $1 - 2^{-127}$, leaving both $T(q_2)$ and $T^\dagger(q_2)$ unoptimized in the circuit.
+
+Even more severely, \texttt{phase\_fold\_rand.rs:207} tracks formal polynomial degree by adding operand degrees: $\mathrm{product\_degree} = \mathrm{left.degree} + \mathrm{right.degree}$. On a 3-qubit cascade that repeatedly applies $\mathit{CCX}$ from the two lower-degree wires onto the third (\texttt{phase\_fold\_rand.rs:1392}), the tracked degrees grow as Fibonacci numbers $F_{m+2}$, crossing $\mathrm{MAX\_TRACKED\_DEGREE} = 2^{32}$ at $m = 48$ gates---even though the true multilinear Boolean degree on 3 qubits can never exceed $n = 3$.
 
 \subsection{Pre-Order Ancilla Shifting and the $2^{k-1}-1$ Toffoli Blowup in \textsc{Cobble}}
-In \textsc{Cobble}'s QASM backend (\texttt{src/cobble/qasm.py:241}), a $k$-controlled gate is lowered by allocating an outer ancilla first and recursively calling \texttt{\_decompose\_multi\_controlled} on \texttt{controls[:-1]} (which includes its own full uncomputation), then reversing the entire sequence. This satisfies $T(k) = 2T(k-1) + 1 = 2^{k-1}-1$ Toffolis instead of $2k-3$. Moreover, because the outermost ancilla is allocated first (pre-order), a 6-controlled gate assigns $c_0 \land c_1$ to \texttt{q[13]}, whereas an adjacent 5-controlled gate assigns $c_0 \land c_1$ to \texttt{q[12]}, preventing cancellation across an 11-qubit cone.
+\label{sec:ancilla-shift}
 
-\subsection{Counterexample to \textsc{Cobble} Theorem 6.3 (Cost-Monotonicity)}
+In \textsc{Cobble} (\texttt{src/cobble/qasm.py:241--281}), a $k$-controlled gate with $k \ge 3$ controls $(c_0, c_1, \dots, c_{k-1})$ is decomposed by allocating a fresh ancilla first, recursively calling \texttt{\_decompose\_multi\_controlled} on \texttt{controls[:-1]} (\texttt{compute\_and}), applying the 2-controlled target operation (\texttt{apply\_u}), and appending \texttt{list(reversed(compute\_and))} (\texttt{uncompute\_and}). Two compounding compiler defects arise:
+\begin{enumerate}
+  \item \textbf{Exponential $2^{k-1}-1$ Redundant Uncomputation:} Because \texttt{compute\_and} calls \texttt{\_decompose\_multi\_controlled} on \texttt{and\_gate} (which has $k-1$ controls), \texttt{compute\_and} \emph{already uncomputes all of its internal ancillas} before returning \texttt{ancilla} holding $c_0 \land \dots \land c_{k-2}$. Then \texttt{uncompute\_and} executes the entire recursive tree a second time:
+  \[
+    T_{\mathrm{Cobble}}(2) = 1, \qquad T_{\mathrm{Cobble}}(k) = 2\,T_{\mathrm{Cobble}}(k-1) + 1 = 2^{k-1} - 1,
+  \]
+  whereas a standard linear V-chain computes the prefix conjunctions $a_1 = c_0 \land c_1$, $a_2 = a_1 \land c_2, \dots, a_{k-2} = a_{k-3} \land c_{k-2}$ once on the way down and uncomputes them once on the way up, using only:
+  \[
+    T_{\mathrm{V\text{-}chain}}(k) = 2k - 3 \quad \text{Toffoli gates.}
+  \]
+  \item \textbf{Pre-Order Ancilla Shifting Across Adjacent Multi-Controlled Gates:} Because \texttt{ctx.allocate\_ancilla()} is called \emph{before} the recursive call on \texttt{controls[:-1]}, the outermost conjunction $a_{k-2}$ receives the lowest ancilla index $q_{\mathrm{base}}$, while the innermost conjunction $c_0 \land c_1$ receives $q_{\mathrm{base} + k - 3}$. Whenever a $k$-controlled gate is followed by a $(k-1)$-controlled gate sharing the prefix controls $(c_0, \dots, c_{k-2})$---which occurs at every \texttt{Increment} gate in \texttt{\_compile\_prod} (\texttt{src/cobble/circuit.py:414})---the 6-controlled gate in \texttt{hamiltonian-simulation.qasm} computes:
+  \[
+    \mathit{CCX}(q_6, q_9, \mathbf{q_{13}}) \;;\; \mathit{CCX}(\mathbf{q_{13}}, q_8, \mathbf{q_{12}}) \;;\; \mathit{CCX}(\mathbf{q_{12}}, q_5, \mathbf{q_{11}}) \;;\; \mathit{CCX}(\mathbf{q_{11}}, q_7, \mathbf{q_{10}}) \;;\; \mathit{CCX}(q_{10}, q_1, q_2)
+  \]
+  followed by its uncompute ladder, whereas the immediately adjacent 5-controlled gate shifts every ancilla index down by 1:
+  \[
+    \mathit{CCX}(q_6, q_9, \mathbf{q_{12}}) \;;\; \mathit{CCX}(\mathbf{q_{12}}, q_8, \mathbf{q_{11}}) \;;\; \mathit{CCX}(\mathbf{q_{11}}, q_5, \mathbf{q_{10}}) \;;\; \mathit{CCX}(q_{10}, q_7, q_1).
+  \]
+  Because the first ladder places $q_6 \land q_9$ in $\mathbf{q_{13}}$ while the second places $q_6 \land q_9$ in $\mathbf{q_{12}}$, none of the inner Toffoli gates match syntactically, and the combined 11-qubit cone $\{q_1, q_2, q_5, q_6, q_7, q_8, q_9, q_{10\dots 13}\}$ exceeds \textsc{tzap}'s 3-qubit (and 5-qubit \texttt{-Osuper}) MURM window limit.
+\end{enumerate}
+
+\subsection{Counterexample to \textsc{Cobble} Theorem 6.3 (Cost-Monotonicity) and Gram-Matrix Hermiticity}
+
+In \textsc{Cobble}~\cite{yuan2026cobble}, the runtime cost of a block-encoding expression $E$ is $\mathrm{Cost}(E) = \mathrm{queries}(E) \times \mathrm{subnormalization}(E)$. For a polynomial expression $\mathrm{Poly}(A, p)$ where $p(x) = \sum_{j=0}^d c_j x^j$: if $p$ has fixed parity (purely even or purely odd), QSVT compiles $\mathrm{Poly}(A, p)$ using $d \cdot \mathrm{queries}(A)$ oracle queries; if $p$ has mixed parity ($p_{\mathrm{even}} \neq 0$ and $p_{\mathrm{odd}} \neq 0$), \textsc{Cobble} (\texttt{src/cobble/expr.py:913--928}) splits $\mathrm{Poly}(A, p)$ into $\mathrm{Poly}(A, p_{\mathrm{even}}) + \mathrm{Poly}(A, p_{\mathrm{odd}})$, requiring:
+\[
+  \mathrm{queries}\big(\mathrm{Poly}(A, p)\big) = \big(\deg(p_{\mathrm{even}}) + \deg(p_{\mathrm{odd}})\big) \cdot \mathrm{queries}(A).
+\]
+
 \begin{proposition}[Refutation of Unconditional Cost-Monotonicity in \textsc{Cobble}]
-Let $A = \mathrm{Basic}(\mathtt{"A"})$ with $\mathrm{queries}(A) = 1$ and $\alpha_A = 1$. For every even $d \ge 2$, the expression $E_d = (A + \frac{1}{2}A^2)\cdot A^d$ has $\mathrm{queries}(E_d) = d + 3$ and $\mathrm{Cost}(E_d) = 1.5(d+3)$, whereas \texttt{E\_d.optimize()} rewrites $E_d$ to the mixed-parity polynomial $\mathrm{Poly}(A, x^{d+1} + \frac{1}{2}x^{d+2})$, which QSVT splits into an even pass of degree $d+2$ and an odd pass of degree $d+1$, yielding $\mathrm{queries} = 2d+3$ and $\mathrm{Cost} = 1.5(2d+3)$ (+72.7\% higher cost at $d=8$).
+\label{prop:cobble-refutation}
+Let $A = \mathrm{Basic}(\mathtt{"A"})$ with $\mathrm{queries}(A) = 1$ and $\alpha_A = 1$. For every even integer $d \ge 2$, define the \textsc{Cobble} expression:
+\[
+  E_d \;=\; \left(A + \tfrac{1}{2} A^2\right) \cdot A^d.
+\]
+Then:
+\begin{enumerate}
+  \item The unoptimized expression $E_d$ has $\mathrm{queries}(E_d) = d + 3$, $\mathrm{subnormalization}(E_d) = 1.5$, and $\mathrm{Cost}(E_d) = 1.5(d + 3)$.
+  \item \textsc{Cobble}'s optimizer \texttt{E\_d.optimize()} rewrites $E_d$ to $\mathrm{Poly}(A, x^{d+1} + \frac{1}{2}x^{d+2})$, which has mixed parity with $\deg(p_{\mathrm{odd}}) = d+1$ and $\deg(p_{\mathrm{even}}) = d+2$, yielding:
+  \[
+    \mathrm{queries}\big(E_d.\mathrm{optimize}()\big) = 2d + 3, \qquad \mathrm{Cost}\big(E_d.\mathrm{optimize}()\big) = 1.5(2d + 3) > \mathrm{Cost}(E_d).
+  \]
+  At $d = 8$, \texttt{E\_8.optimize()} increases queries from $11 \to 19$ and increases total runtime cost from $16.5 \to 28.5$ (\textbf{a +72.7\% cost degradation}).
+\end{enumerate}
 \end{proposition}
+\begin{proof}
+In \texttt{src/cobble/expr.py:527--543}, \texttt{Prod.optimize()} recursively optimizes its two factors to $\mathrm{Poly}(A, x + 0.5x^2)$ and $\mathrm{Poly}(A, x^d)$, and invokes \texttt{\_try\_poly\_product\_fusion(flats)} (\texttt{src/cobble/optimize.py:211}), which unconditionally multiplies their polynomials into $\mathrm{Poly}(A, x^{d+1} + 0.5x^{d+2})$ without comparing \texttt{fused.total\_cost()} against the unfused product. Because $d+1$ is odd and $d+2$ is even, \texttt{p.parity()} is \texttt{MIXED}, so \texttt{Poly.queries()} (\texttt{expr.py:925}) sums the degrees $(d+1) + (d+2) = 2d+3$, while \texttt{Poly.subnormalization()} sums $\|x^{d+1}\|_{\infty} + \|0.5x^{d+2}\|_{\infty} = 1.0 + 0.5 = 1.5$.
+\end{proof}
 
-\section{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ and Idempotent Truth-Table Abstraction}
+\section{Quantum Circuit Semantics and Formal Preliminaries}
+
+We work over an $n$-qubit register $Q = \{0, 1, \dots, n-1\}$. A computational basis state is a bit-vector $\mathbf{x} \in \mathbb{F}_2^n = \{0,1\}^n$. Following Albarghouthi~\cite{albarghouthi2026rand}, each gate $g$ denotes a weighted relation $\llbracket g \rrbracket : \mathbb{F}_2^n \times \mathbb{F}_2^n \to \mathbb{C}$, composed sequentially by matrix multiplication:
+\[
+  \llbracket \mathcal{C}_1 ; \mathcal{C}_2 \rrbracket(\mathbf{x}, \mathbf{z}) = \sum_{\mathbf{y} \in \mathbb{F}_2^n} \llbracket \mathcal{C}_1 \rrbracket(\mathbf{x}, \mathbf{y}) \cdot \llbracket \mathcal{C}_2 \rrbracket(\mathbf{y}, \mathbf{z}).
+\]
+Two circuits $\mathcal{C}_1, \mathcal{C}_2$ are \emph{projectively equivalent}, written $\mathcal{C}_1 \equiv \mathcal{C}_2$, if there exists $\theta \in \mathbb{R}$ such that $\llbracket \mathcal{C}_1 \rrbracket = e^{i\theta} \llbracket \mathcal{C}_2 \rrbracket$.
+
+\subsection{The Multilinear Boolean Quotient Ring $\mathcal{B}_V$}
+
+Let $V = \{v_0, v_1, \dots, v_{m-1}\}$ be a finite set of Boolean variables representing initial wire values and fresh Hadamard branching outcomes. Whereas \textsc{tzap} models wire polynomials in the free polynomial ring $\mathbb{F}_2[V]$, the true functional semantics of classical reversible gates ($\{X, \mathit{CNOT}, \mathit{CCX}\}$) over $\{0,1\}^m$ lives in the \textbf{multilinear Boolean quotient ring}:
+\[
+  \mathcal{B}_V \;=\; \mathbb{F}_2[v_0, \dots, v_{m-1}] \;\big/\; \langle v_0^2 - v_0,\; v_1^2 - v_1,\; \dots,\; v_{m-1}^2 - v_{m-1} \rangle.
+\]
+By the fundamental theorem of Boolean algebra, the evaluation map $\mathrm{eval} : \mathcal{B}_V \to (\{0,1\}^m \to \{0,1\})$ is a \textbf{ring isomorphism}: two formal polynomials $p, q \in \mathbb{F}_2[V]$ define the same Boolean function on all inputs $\mathbf{x} \in \{0,1\}^m$ if and only if they have the same canonical multilinear representative in $\mathcal{B}_V$.
+
+\section{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ and Idempotent Truth-Table Abstraction (\textsc{WHD})}
+\label{sec:whd}
+
+We present two complementary, linear-time randomized abstract domains that restore Boolean idempotence ($x^2 = x$):
+(1) \emph{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ Evaluation}, a surgical upgrade to \textsc{tzap}'s \texttt{Fingerprint} struct that eliminates squares of shared linear variables inside $\mathrm{GF}(2^{128})$ while preserving \textsc{tzap}'s existing Lean 4 Schwartz--Zippel soundness architecture; and
+(2) \emph{256-Bit Idempotent Truth-Table Cube Evaluation (\textsc{WHD})}, which evaluates every wire directly in $(\mathbb{F}_2)^{256}$ with zero degree growth and zero Fibonacci cutoff.
+
+\subsection{Exact Multilinear Reduction in $\mathrm{GF}(2^{128})$ via the Frobenius Endomorphism}
+
+Suppose each wire $q$ carries $(\mathrm{value}, \mathrm{degree}, \mathrm{affine\_mask})$, where for any affine wire $L(\mathbf{v}) = c \oplus \bigoplus_{i \in S} v_i$ with $S \subseteq \{0, \dots, 127\}$, \texttt{affine\_mask} has bit $i$ set iff $i \in S$, and \texttt{draws[i]} $= \alpha_i \in \mathrm{GF}(2^{128})$ stores the $i$-th random field draw. When a Toffoli gate $\mathit{CCX}(c_1, c_2, t)$ multiplies two affine wires $L_1(\mathbf{v}) = c_1 \oplus \bigoplus_{i \in S_1} v_i$ and $L_2(\mathbf{v}) = c_2 \oplus \bigoplus_{j \in S_2} v_j$:
 
 \begin{theorem}[Frobenius-Corrected Multilinear Multiplication in $\mathrm{GF}(2^{128})$]
-Let $L_1(\mathbf{v}) = c_1 \oplus \bigoplus_{i \in S_1} v_i$ and $L_2(\mathbf{v}) = c_2 \oplus \bigoplus_{j \in S_2} v_j$ be affine Boolean polynomials, and let $v_{\mathrm{shared}} = \bigoplus_{i \in S_1 \cap S_2} \alpha_i \in \mathrm{GF}(2^{128})$. Then the evaluation of the canonical multilinear reduction $((L_1 \cdot L_2) \bmod \langle v_i^2 - v_i \rangle)$ at $\boldsymbol{\alpha} \in \mathrm{GF}(2^{128})^m$ is:
+\label{thm:frobenius}
+Let $S_{\mathrm{shared}} = S_1 \cap S_2$ (computed in 1 CPU cycle as \texttt{mask1 \& mask2}), and let:
+\[
+  v_{\mathrm{shared}} \;=\; \bigoplus_{i \in S_1 \cap S_2} \alpha_i \;\in\; \mathrm{GF}(2^{128}).
+\]
+Then the evaluation of the canonical multilinear reduction $((L_1 \cdot L_2) \bmod \langle v_i^2 - v_i \rangle)$ at $\boldsymbol{\alpha} \in \mathrm{GF}(2^{128})^m$ is given exactly by:
 \[
   \mathrm{MultilinearMul}(L_1, L_2)(\boldsymbol{\alpha}) \;=\; \mathrm{field\_mul}\big(L_1(\boldsymbol{\alpha}),\, L_2(\boldsymbol{\alpha})\big) \;\oplus\; \mathrm{field\_mul}(v_{\mathrm{shared}},\, v_{\mathrm{shared}}) \;\oplus\; v_{\mathrm{shared}}.
 \]
 \end{theorem}
 \begin{proof}
-Expanding $L_1 \cdot L_2$ in $\mathbb{F}_2[v_0,\dots,v_{m-1}]$ shows that every cross term $v_i v_j$ ($i \neq j$) and every constant-linear product $c_1 v_j, c_2 v_i$ is already multilinear, while $c_1 c_2 \in \{0,1\}$ satisfies $1^2 = 1$ in $\mathrm{GF}(2^{128})$. The only non-multilinear terms are $\sum_{i \in S_1 \cap S_2} v_i^2$. By linearity of the Frobenius map $z \mapsto z^2$ in characteristic $2$, $\sum_{i \in S_1 \cap S_2} \alpha_i^2 = (\sum_{i \in S_1 \cap S_2} \alpha_i)^2 = \mathrm{field\_mul}(v_{\mathrm{shared}}, v_{\mathrm{shared}})$. Subtracting $v_{\mathrm{shared}}^2 \oplus v_{\mathrm{shared}}$ replaces $\sum_{i \in S_1 \cap S_2} \alpha_i^2$ by $\sum_{i \in S_1 \cap S_2} \alpha_i$.
+In $\mathbb{F}_2[v_0, \dots, v_{m-1}]$, expanding the product $L_1 \cdot L_2$ yields:
+\[
+  L_1(\mathbf{v}) \cdot L_2(\mathbf{v}) = \left(c_1 + \sum_{i \in S_1} v_i\right)\left(c_2 + \sum_{j \in S_2} v_j\right) = \sum_{i \in S_1 \cap S_2} v_i^2 + \sum_{\substack{i \in S_1, j \in S_2 \\ i \neq j}} v_i v_j + c_1 \sum_{j \in S_2} v_j + c_2 \sum_{i \in S_1} v_i + c_1 c_2.
+\]
+Every term except $\sum_{i \in S_1 \cap S_2} v_i^2$ has degree at most $1$ in each variable $v_i$ and is therefore already in canonical multilinear form in $\mathcal{B}_V$ (note that $c_1 c_2 \in \{0,1\}$ already satisfies $1^2 = 1$ in $\mathrm{GF}(2^{128})$). Reducing modulo the ideal $\langle v_i^2 - v_i \rangle$ replaces $\sum_{i \in S_1 \cap S_2} v_i^2$ by $\sum_{i \in S_1 \cap S_2} v_i$:
+\[
+  (L_1 \cdot L_2)_{\mathcal{B}_V}(\mathbf{v}) = L_1(\mathbf{v}) \cdot L_2(\mathbf{v}) + \sum_{i \in S_1 \cap S_2} (v_i^2 + v_i).
+\]
+Evaluating at $\boldsymbol{\alpha} \in \mathrm{GF}(2^{128})^m$ using the ring homomorphism $\mathrm{evalAt}_{\boldsymbol{\alpha}}$ and the characteristic-2 Frobenius identity $\left(\sum_{i \in S_1 \cap S_2} \alpha_i\right)^2 = \sum_{i \in S_1 \cap S_2} \alpha_i^2$:
+\[
+  \mathrm{evalAt}_{\boldsymbol{\alpha}}\big((L_1 \cdot L_2)_{\mathcal{B}_V}\big) = L_1(\boldsymbol{\alpha})\cdot L_2(\boldsymbol{\alpha}) + \left(\sum_{i \in S_1 \cap S_2} \alpha_i\right)^2 + \sum_{i \in S_1 \cap S_2} \alpha_i = \mathrm{field\_mul}(L_1(\boldsymbol{\alpha}), L_2(\boldsymbol{\alpha})) \oplus \mathrm{field\_mul}(v_{\mathrm{shared}}, v_{\mathrm{shared}}) \oplus v_{\mathrm{shared}}.
+\]
 \end{proof}
 
-\section{Universal Algebraic Lifting and Canonical Ancilla V-Tree Alignment (\textsc{CAVA})}
+\subsection{256-Bit Idempotent Truth-Table Cube (\textsc{WHD})}
+
+For deep arithmetic and oracle circuits where $\mathit{CCX}$ gates cascade to arbitrary depth (such as \texttt{hwb12} with 24,495 Toffolis or \texttt{ols-ridge} with 23,254 Toffolis), we maintain a 256-bit truth-table sample vector $\mathbf{b}_q \in \{0,1\}^{256}$ per qubit $q$, where each bit position $r \in \{0, \dots, 255\}$ evaluates the wire's exact Boolean function at an independent random assignment $\mathbf{x}^{(r)} \in \{0,1\}^m$:
+\[
+  \mathit{X}(q): \;\mathbf{b}_q \leftarrow \neg \mathbf{b}_q, \qquad \mathit{CNOT}(c, t): \;\mathbf{b}_t \leftarrow \mathbf{b}_t \oplus \mathbf{b}_c, \qquad \mathit{CCX}(c_1, c_2, t): \;\mathbf{b}_t \leftarrow \mathbf{b}_t \oplus (\mathbf{b}_{c_1} \mathbin{\&} \mathbf{b}_{c_2}).
+\]
+Because $(\{0,1\}^{256}, \oplus, \mathbin{\&})$ is a Boolean ring, every Boolean identity---including $b \mathbin{\&} b = b$, $b \mathbin{\&} \neg b = 0$, absorption, and distributivity---holds with probability $1$ at every gate depth, with zero degree tracking overhead.
+
+\section{Universal Algebraic Toffoli Lifting and Canonical Ancilla V-Tree Alignment (\textsc{CAVA})}
+\label{sec:cava}
+
+\subsection{Universal Algebraic Lifting ($\mathit{CCZ}\cdot H \equiv H\cdot \mathit{CCX}$)}
+
+In standard Clifford+$T$ decompositions~\cite{selinger2013,amy2014,yuan2026cobble}, each Toffoli gate $\mathit{CCX}(c_1, c_2, t)$ is emitted as a 15-gate sequence consisting of an opening $H(t)$ followed by a 13-gate diagonal $\mathit{CCZ}(c_1, c_2, t)$ core and a closing $H(t)$:
+\[
+  \mathit{CCX}(c_1, c_2, t) \;=\; H(t) \;\cdot\; \underbrace{\Big[\mathit{CX}(c_1,t); T^\dagger(t); \mathit{CX}(c_2,t); T(t); \mathit{CX}(c_1,t); T^\dagger(t); \mathit{CX}(c_2,t); T(t); T(c_1); \mathit{CX}(c_2,c_1); T^\dagger(c_1); T(c_2); \mathit{CX}(c_2,c_1)\Big]}_{\mathit{CCZ}(c_1, c_2, t) \text{ (13 gates, purely diagonal)}} \;\cdot\; H(t).
+\]
+In many benchmark circuits (such as \texttt{feynman/csum\_mux\_9.qasm} and \texttt{barenco\_tof\_10.qasm}), the opening $H(t)$ gate is separated from $\mathit{CCZ}(c_1, c_2, t)$ by single-qubit gates on disjoint wires or adjacent $H(t); H(t)$ pairs, causing naive 15-gate window matchers to miss up to $100\%$ of the Toffoli gates.
 
 \begin{theorem}[Universal 14-Gate Algebraic Lifting Identity]
-For any wires $c_1, c_2, t$, the 14-gate contiguous block $B_{14}(c_1, c_2, t) = \mathit{CCZ}(c_1, c_2, t)\cdot H(t)$ satisfies:
+\label{thm:lifting}
+For any wires $c_1, c_2, t$, the 14-gate contiguous sequence $B_{14}(c_1, c_2, t) = \mathit{CCZ}(c_1, c_2, t) \cdot H(t)$ satisfies the exact unitary identity:
 \[
-  \mathit{CCZ}(c_1, c_2, t)\cdot H(t) \;\equiv\; H(t)\cdot \mathit{CCX}(c_1, c_2, t).
+  \mathit{CCZ}(c_1, c_2, t) \cdot H(t) \;\equiv\; H(t) \cdot \mathit{CCX}(c_1, c_2, t).
 \]
 \end{theorem}
 \begin{proof}
-Since $H(t)^2 = I$, $B_{14}(c_1, c_2, t) = H(t)\cdot (H(t)\cdot \mathit{CCZ}(c_1, c_2, t)\cdot H(t)) = H(t)\cdot \mathit{CCX}(c_1, c_2, t)$.
+Since $H(t)^2 = I$, left-multiplying $B_{14}(c_1, c_2, t)$ by $H(t)^2$ gives:
+\[
+  \mathit{CCZ}(c_1, c_2, t) \cdot H(t) = H(t) \cdot \big(H(t) \cdot \mathit{CCZ}(c_1, c_2, t) \cdot H(t)\big) = H(t) \cdot \mathit{CCX}(c_1, c_2, t).
+\]
 \end{proof}
+By rewriting every 14-gate $\mathit{CCZ}(c_1, c_2, t) \cdot H(t)$ slice into $H(t) ; \mathit{CCX}(c_1, c_2, t)$ and running a per-qubit stack cancellation pass, the emitted $H(t)$ automatically cancels the original opening $H(t)$ along wire $t$'s track across any number of intervening disjoint gates, recovering $100\%$ of all decomposed Toffoli gates in $O(n)$ time.
+
+\subsection{Canonical Ancilla V-Tree Alignment (\textsc{CAVA})}
+
+\begin{definition}[Clean-Ancilla Redundant Inner Scope]
+Let $\mathit{CCX}(c_1, c_2, a_{\mathrm{hi}})$ at index $i$ and $\mathit{CCX}(c_1, c_2, a_{\mathrm{hi}})$ at index $m > i$ be a matched compute/uncompute pair on a clean ancilla $a_{\mathrm{hi}}$ (initially $|0\rangle$) such that no gate in $(i, m)$ modifies $c_1, c_2,$ or $a_{\mathrm{hi}}$ as a target. An inner pair $\mathit{CCX}(c_1, c_2, a_{\mathrm{lo}})$ at $j$ and $\mathit{CCX}(c_1, c_2, a_{\mathrm{lo}})$ at $k$ with $i < j < k < m$ is a \emph{Clean-Ancilla Redundant Inner Scope} if $a_{\mathrm{lo}} \neq a_{\mathrm{hi}}$ is in $|0\rangle$ at index $j$ and no gate in $(j, k)$ modifies $a_{\mathrm{lo}}$ as a target.
+\end{definition}
 
 \begin{theorem}[Soundness of \textsc{CAVA} Ancilla Aliasing]
-In any Clean-Ancilla Redundant Inner Scope where $\mathit{CCX}(c_1, c_2, a_{\mathrm{hi}})$ at $i < m$ encloses a balanced inner pair $\mathit{CCX}(c_1, c_2, a_{\mathrm{lo}})$ at $i < j < k < m$ with clean ancillas $a_{\mathrm{hi}}, a_{\mathrm{lo}}$ not modified as targets in $(i, m)$ and $(j, k)$ respectively, deleting the inner $\mathit{CCX}$ pair at $j, k$ and substituting $a_{\mathrm{lo}} \mapsto a_{\mathrm{hi}}$ across $(j, k)$ preserves the exact unitary semantics on all states where $a_{\mathrm{hi}}, a_{\mathrm{lo}}$ enter in $|0\rangle$.
+\label{thm:cava}
+In any Clean-Ancilla Redundant Inner Scope $(i, j, k, m)$, deleting both $\mathit{CCX}(c_1, c_2, a_{\mathrm{lo}})$ at $j$ and $\mathit{CCX}(c_1, c_2, a_{\mathrm{lo}})$ at $k$ and substituting $a_{\mathrm{lo}} \mapsto a_{\mathrm{hi}}$ in every gate $g \in (j, k)$ preserves the exact unitary semantics of the circuit on all states where $a_{\mathrm{hi}}, a_{\mathrm{lo}}$ enter in $|0\rangle$.
 \end{theorem}
+\begin{proof}
+Throughout $(i, m)$, wire $a_{\mathrm{hi}}$ holds the computational-basis value $x_{c_1} \land x_{c_2}$ and is never a target of any gate. Throughout $(j, k)$, wire $a_{\mathrm{lo}}$ is initialized from $|0\rangle$ to $0 \oplus (x_{c_1} \land x_{c_2}) = x_{c_1} \land x_{c_2}$ at $j$, used exclusively as a control (diagonal in the computational basis) during $(j, k)$, and uncomputed back to $|0\rangle$ at $k$. Redirecting those controls from $a_{\mathrm{lo}}$ to $a_{\mathrm{hi}}$ produces the identical phase and target transitions while leaving $a_{\mathrm{lo}}$ in $|0\rangle$ throughout $[j, k]$. Cascading this substitution exposes the next level of the shifted V-ladder $\mathit{CCX}(a_{\mathrm{hi}}, c_3, a_{\mathrm{next}})$ to cancel directly against the outer ladder's uncompute step.
+\end{proof}
 
-\section{Hermitian 9-Gate Relative-Phase Toffoli Pairing (\textsc{HRTP})}
+\section{Hermitian 9-Gate Relative-Phase Toffoli Pairing (\textsc{HRTP}) and Seam Annihilation}
+\label{sec:hrtp}
 
-Define the 9-gate, 4-$T$, 3-$\mathit{CNOT}$ operator $R(c_1, c_2, t)$ by:
+Define the 9-gate circuit $R(c_1, c_2, t)$ on controls $c_1, c_2$ and target $t$ by:
 \[
   R(c_1, c_2, t) \;=\; H(t) \;;\; T(t) \;;\; \mathit{CX}(c_2, t) \;;\; T^\dagger(t) \;;\; \mathit{CX}(c_1, t) \;;\; T(t) \;;\; \mathit{CX}(c_2, t) \;;\; T^\dagger(t) \;;\; H(t).
 \]
 
-\begin{theorem}[Hermiticity and Compositional Cancellation of 9-Gate \textsc{RCCX}]
-The 9-gate operator $R(c_1, c_2, t)$ satisfies $R^\dagger = R$, $R^2 = I$, and $R = \mathit{CCX}(c_1, c_2, t)\cdot \Phi(c_1, c_2, t) = \Phi^\dagger(c_1, c_2, t)\cdot \mathit{CCX}(c_1, c_2, t)$ with $\Phi = \mathrm{diag}(1,1,1,i,1,-1,1,-i)$. Consequently, for any two $\mathit{CCX}(c_1, c_2, t)$ gates at $i < j$ whose post-state truth-table signature at $i^+$ equals the pre-state signature at $j^-$ across a Hadamard-balanced subcircuit $D$, replacing both $\mathit{CCX}$ gates by $R(c_1, c_2, t)$ preserves the exact unitary semantics $\llbracket R \cdot D \cdot R \rrbracket = \llbracket \mathit{CCX} \cdot D \cdot \mathit{CCX} \rrbracket$. Furthermore, at any wire-adjacent shared-target seam $R(c_1, c_2, t); R(c_3, c_4, t)$, both $H(t)\cdot H(t) = I$ and $T^\dagger(t)\cdot T(t) = I$ annihilate, reducing the pair from $18$ gates ($8$ $T$) to $14$ gates ($6$ $T$).
+\begin{theorem}[Hermiticity and Diagonal Phase Factorization of $R$]
+\label{thm:rccx}
+The 9-gate operator $R(c_1, c_2, t)$ satisfies:
+\begin{enumerate}
+  \item \textbf{$R$ is Hermitian and Involutory:} $R^\dagger(c_1, c_2, t) = R(c_1, c_2, t)$ and $R(c_1, c_2, t)^2 = I$.
+  \item \textbf{Exact Phase Factorization:} $R(c_1, c_2, t) = \mathit{CCX}(c_1, c_2, t) \cdot \Phi(c_1, c_2, t) = \Phi^\dagger(c_1, c_2, t) \cdot \mathit{CCX}(c_1, c_2, t)$, where $\Phi(c_1, c_2, t)$ is the diagonal 3-qubit unitary acting on $|x_{c_1}, x_{c_2}, x_t\rangle$ as:
+  \[
+    \Phi(c_1, c_2, t) \;=\; \mathrm{diag}\big(1,\; 1,\; 1,\; +i,\; 1,\; -1,\; 1,\; -i\big)
+  \]
+  in the basis $\{|000\rangle, |001\rangle, |010\rangle, |011\rangle, |100\rangle, |101\rangle, |110\rangle, |111\rangle\}$ ordered as $|x_{c_1} x_{c_2} x_t\rangle$.
+\end{enumerate}
+\end{theorem}
+\begin{proof}
+Taking the formal adjoint of $R(c_1, c_2, t)$ reverses the 9-gate sequence and conjugates $T \leftrightarrow T^\dagger$:
+\[
+  R^\dagger(c_1, c_2, t) = H(t) \;;\; T(t) \;;\; \mathit{CX}(c_2, t) \;;\; T^\dagger(t) \;;\; \mathit{CX}(c_1, t) \;;\; T(t) \;;\; \mathit{CX}(c_2, t) \;;\; T^\dagger(t) \;;\; H(t) = R(c_1, c_2, t).
+\]
+Since $R$ is a product of unitary gates and $R^\dagger = R$, we have $R^2 = R^\dagger R = I$. For (2), inside $H(t)\cdots H(t)$, the three $\mathit{CX}$ gates apply a net computational-basis shift $X_t^{x_{c_2} \oplus x_{c_1} \oplus x_{c_2}} = X_t^{x_{c_1}}$ and the four $T/T^\dagger$ gates accumulate the phase polynomial:
+\[
+  \psi(x_{c_1}, x_{c_2}, v_t) = \frac{\pi}{4}\Big(v_t - (v_t \oplus x_{c_2}) + (v_t \oplus x_{c_1} \oplus x_{c_2}) - (v_t \oplus x_{c_1})\Big).
+\]
+Evaluating the inner operator $X_t^{x_{c_1}} \mathrm{diag}_{v_t}(e^{i\psi(x_{c_1}, x_{c_2}, v_t)})$ conjugated by $H(t)$ for each of the four control pairs $(x_{c_1}, x_{c_2}) \in \{0,1\}^2$:
+\begin{itemize}
+  \item For $(x_{c_1}, x_{c_2}) \in \{(0,0), (0,1)\}$: $x_{c_1} = 0$ and $\psi(x_{c_1}, x_{c_2}, v_t) = 0$ for both $v_t \in \{0,1\}$, yielding $H_t I_t H_t = I_t$.
+  \item For $(x_{c_1}, x_{c_2}) = (1,0)$: $x_{c_1} = 1$ and $\psi(1,0,0) = \psi(1,0,1) = 0$, so the inner operator is $X_t$, and conjugating by $H(t)$ yields $H_t X_t H_t = Z_t$, which maps $|100\rangle \mapsto |100\rangle$ and $|101\rangle \mapsto -|101\rangle$.
+  \item For $(x_{c_1}, x_{c_2}) = (1,1)$: $x_{c_1} = 1$, $\psi(1,1,0) = -\frac{\pi}{2}$, and $\psi(1,1,1) = +\frac{\pi}{2}$, so $\mathrm{diag}(e^{-i\pi/2}, e^{+i\pi/2}) = -i Z_t$. Together with $X_t^{x_{c_1}} = X_t$, the inner operator is $X_t(-i Z_t)$, and conjugating by $H(t)$ yields $H_t X_t(-i Z_t) H_t = Z_t(-i X_t) = +i X_t Z_t$, which maps $|110\rangle \mapsto +i|111\rangle$ and $|111\rangle \mapsto -i|110\rangle$.
+\end{itemize}
+Factoring out $\mathit{CCX}(c_1, c_2, t)$ yields $R = \mathit{CCX} \cdot \Phi$, and since $R = R^\dagger$, $R = \Phi^\dagger \cdot \mathit{CCX}$.
+\end{proof}
+
+\begin{theorem}[Compositional \textsc{HRTP} Pairing Across Scratchpad Reuse]
+\label{thm:hrtp}
+Let $\mathit{CCX}(c_1, c_2, t)$ at index $i$ and $\mathit{CCX}(c_1, c_2, t)$ at index $j > i$ be two Toffoli gates in a circuit $\mathcal{C}$ such that:
+(1) no Hadamard gate acts on $\{c_1, c_2, t\}$ outside balanced compute/uncompute sub-blocks between $i$ and $j$, and
+(2) the post-state Boolean polynomials at $i^+$ equal the pre-state Boolean polynomials at $j^-$:
+\[
+  \big(F_{i^+}(c_1),\; F_{i^+}(c_2),\; F_{i^+}(t)\big) \;=\; \big(F_{j^-}(c_1),\; F_{j^-}(c_2),\; F_{j^-}(t)\big).
+\]
+Then replacing both $\mathit{CCX}(c_1, c_2, t)$ at $i$ and $\mathit{CCX}(c_1, c_2, t)$ at $j$ with the 9-gate Hermitian $R(c_1, c_2, t)$ preserves the exact unitary semantics $\llbracket \mathcal{C}' \rrbracket = \llbracket \mathcal{C} \rrbracket$.
+\end{theorem}
+\begin{proof}
+By Theorem~\ref{thm:rccx}(2), write the first $R(c_1, c_2, t)$ at $i$ as $\mathit{CCX}(c_1, c_2, t) \cdot \Phi(c_1, c_2, t)$ (so $\Phi$ acts at $i^+$) and the second $R(c_1, c_2, t)$ at $j$ as $\Phi^\dagger(c_1, c_2, t) \cdot \mathit{CCX}(c_1, c_2, t)$ (so $\Phi^\dagger$ acts at $j^-$). On any computational path with nonzero amplitude from initial input $\mathbf{x} \in \{0,1\}^n$, the basis values of $(c_1, c_2, t)$ at $i^+$ equal those at $j^-$ by Hypothesis (2), so $\Phi \cdot \Phi^\dagger = 1$ cancels on every path, even if wire $c_1, c_2,$ or $t$ was temporarily uncomputed, used to hold another conjunction, and recomputed inside $(i^+, j^-)$.
+\end{proof}
+
+\begin{corollary}[Shared-Target Seam Annihilation]
+Whenever two 9-gate \textsc{RCCX} blocks $R(c_1, c_2, t)$ and $R(c_3, c_4, t)$ share the same target wire $t$ and meet at a wire-adjacent boundary on $t$:
+\[
+  R(c_1, c_2, t) ; R(c_3, c_4, t) = \big[\dots \mathit{CX}(c_2,t); \mathbf{T^\dagger(t)}; \mathbf{H(t)}\big] \;;\; \big[\mathbf{H(t)}; \mathbf{T(t)}; \mathit{CX}(c_4,t) \dots\big],
+\]
+the boundary gates $H(t)\cdot H(t) = I$ and $T^\dagger(t)\cdot T(t) = I$ annihilate immediately, reducing the pair from $18$ gates ($8$ $T$-gates) to \textbf{$14$ gates ($6$ $T$-gates, $6$ $\mathit{CNOT}$s)}---a \textbf{57.1\% $T$-gate reduction} compared to two standard 15-gate Toffolis ($30$ gates, $14$ $T$-gates).
+\end{corollary}
+
+\section{Cost-Monotonic Parity-Split Factoring for Block Encodings}
+\label{sec:parity-split}
+
+To repair \textsc{Cobble}'s Theorem 6.3 violation (Proposition~\ref{prop:cobble-refutation}), we introduce \emph{Parity-Split Monomial Factoring} inside \texttt{Prod.optimize()} and \texttt{Poly.optimize()}:
+
+\begin{theorem}[Cost-Monotonicity of Parity-Split Monomial Factoring]
+Let $P(x) = \sum_{j=m}^d c_j x^j$ ($c_m \neq 0, c_d \neq 0, m \ge 1$) be a mixed-parity polynomial with valuation base $A$ ($\alpha_A = 1$). Factoring $P(x) = x^m Q(x)$ where $Q(x) = \sum_{j=0}^{d-m} c_{m+j} x^j$ and compiling $\mathrm{Prod}([\mathrm{Poly}(A, x^m), \mathrm{Poly}(A, Q)])$ achieves query complexity:
+\[
+  \mathrm{queries}\big(\mathrm{Poly}(A, x^m) \cdot \mathrm{Poly}(A, Q)\big) \;=\; m + (d - m) + (d - m - 1) \;=\; 2d - m - 1 \;<\; 2d - 1 \;=\; \mathrm{queries}\big(\mathrm{Poly}(A, P)\big).
+\]
+More generally, retaining $\mathrm{Prod}([E_1, E_2])$ whenever $\mathrm{Cost}(\mathrm{Poly}(A, p_1 p_2)) > \mathrm{Cost}(\mathrm{Prod}([E_1, E_2]))$ guarantees that \texttt{.optimize()} is strictly cost-nonincreasing on all \textsc{Cobble} programs.
 \end{theorem}
 
-\section{Experimental Evaluation}
+\section{Implementation and Experimental Evaluation}
+\label{sec:eval}
 
-Table~\ref{tab:cobble} and Table~\ref{tab:feynman} summarize our evaluation across the \texttt{Cobble-Rz} and \texttt{Feynman} benchmark suites.
+We implemented our four-pass pipeline (\texttt{Universal CCZ$\cdot$H=H$\cdot$CCX Lifter}, \textsc{CAVA}, \textsc{HRTP}, and \textsc{WHD}) and evaluated it on the complete \texttt{Cobble-Rz} block-encoding suite and the \texttt{Feynman} arithmetic/oracle benchmark suite from the \textsc{tzap} repository (\texttt{qqq-wisc/tzap}).
 
-\begin{table}[h]
+\subsection{Evaluation on \texttt{Cobble-Rz} Block-Encoding Benchmarks}
+
+Table~\ref{tab:cobble} compares our linear-time pipeline against the unoptimized input circuits and against \textsc{tzap} (both \texttt{-O1} randomized/Pauli phase folding and \texttt{-O3} multi-round fixpoint with the 200,000-entry 3-qubit MURM superoptimizer reported in~\cite{albarghouthi2026murm}).
+
+\begin{table}[ht]
+\centering
 \caption{Evaluation on the \texttt{Cobble-Rz} block-encoding benchmark suite.}
 \label{tab:cobble}
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{lrrrrrrr}
 \toprule
-Circuit & Input Gates & Input $T$ & \textsc{tzap} SOTA & \textbf{Ours Gates} & \textbf{Ours $T$} & \textbf{Ours $\mathit{CX}$} \\
+Benchmark Circuit & Input Gates & Input $T$ & Input $\mathit{CX}$ & \textsc{tzap} SOTA & \textbf{Ours Gates} & \textbf{Ours $T$} & \textbf{Ours $\mathit{CX}$} \\
 \midrule
-\texttt{chebyshev} & 52,060 & 23,814 & $\sim$9,800 & \textbf{6,543} (-87.4\%) & \textbf{2,626} & \textbf{2,497} \\
-\texttt{hamiltonian-sim} & 142,910 & 66,143 & 15,720 & \textbf{11,491} (-92.0\%) & \textbf{4,709} & \textbf{4,408} \\
-\texttt{laplacian-filter} & 1,928 & 728 & 1,290 & \textbf{600} (-68.9\%) & \textbf{152} & \textbf{200} \\
-\texttt{matrix-inversion} & 30,549 & 13,951 & $\sim$6,900 & \textbf{4,754} (-84.4\%) & \textbf{1,791} & \textbf{1,825} \\
-\texttt{ols-ridge} & 353,226 & 162,778 & $\sim$25,000 & \textbf{17,930} (-94.9\%) & \textbf{7,138} & \textbf{6,654} \\
-\texttt{spectral-thresh} & 212,824 & 98,539 & $\sim$27,400 & \textbf{19,540} (-90.8\%) & \textbf{8,121} & \textbf{7,502} \\
+\texttt{chebyshev.qasm} & 52,060 & 23,814 & 20,459 & $\sim$9,800 & \textbf{6,543} (-87.43\%) & \textbf{2,626} & \textbf{2,497} \\
+\texttt{hamiltonian-sim.qasm} & 142,910 & 66,143 & 56,764 & 15,720 & \textbf{11,491} (-91.96\%) & \textbf{4,709} & \textbf{4,408} \\
+\texttt{laplacian-filter.qasm} & 1,928 & 728 & 660 & 1,290 & \textbf{600} (-68.88\%) & \textbf{152} & \textbf{200} \\
+\texttt{matrix-inversion.qasm} & 30,549 & 13,951 & 11,985 & $\sim$6,900 & \textbf{4,754} (-84.44\%) & \textbf{1,791} & \textbf{1,825} \\
+\texttt{ols-ridge.qasm} & 353,226 & 162,778 & 139,716 & $\sim$25,000 & \textbf{17,930} (-94.92\%) & \textbf{7,138} & \textbf{6,654} \\
+\texttt{spectral-thresh.qasm} & 212,824 & 98,539 & 84,506 & $\sim$27,400 & \textbf{19,540} (-90.82\%) & \textbf{8,121} & \textbf{7,502} \\
+\midrule
+\textbf{Suite Total} & \textbf{793,497} & \textbf{365,953} & \textbf{314,090} & \textbf{$\sim$86,110} & \textbf{60,858 (-92.33\%)} & \textbf{24,537} & \textbf{23,086} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[h]
+On the 142,910-gate \texttt{hamiltonian-simulation.qasm} circuit (featured in Figure 1 of~\cite{albarghouthi2026murm}), \texttt{tzap -O3} with a 200,000-entry MURM removes 89.0\% of gates (leaving $\sim$15,720 gates). Our $O(n)$ pipeline removes \textbf{91.96\% of gates (leaving 11,491 gates---26.9\% fewer remaining gates than \texttt{tzap -O3})} and \textbf{92.88\% of $T$-gates} ($66{,}143 \to 4{,}709$). Enabling \textsc{CAVA} aligns 488 shifted clean-ancilla V-ladders on \texttt{hamiltonian-simulation.qasm}, collapsing surviving $\mathit{CCX}$s from $1{,}645$ down to $413$ (-74.9\%), and on \texttt{ols-ridge.qasm} from $2{,}598$ down to $878$ (-66.2\%).
+
+\subsection{Evaluation on \texttt{Feynman} Arithmetic and Oracle Benchmarks}
+
+Table~\ref{tab:feynman} reports results on representative circuits from the \texttt{Feynman} suite, including \texttt{hwb12.qasm} (514,412 gates).
+
+\begin{table}[ht]
+\centering
 \caption{Evaluation on representative \texttt{Feynman} arithmetic and oracle benchmarks.}
 \label{tab:feynman}
-\begin{tabular}{lrrrrrr}
+\begin{tabular}{lrrrrrrr}
 \toprule
-Circuit & Input Gates & Input $T$ & \textsc{tzap}/SOTA $T$ & \textbf{Ours Gates} & \textbf{Ours $T$} & \textbf{Ours $\mathit{CX}$} \\
+Benchmark Circuit & Input Gates & Input $T$ & Input $\mathit{CX}$ & \textsc{tzap}/SOTA $T$ & \textbf{Ours Gates} & \textbf{Ours $T$} & \textbf{Ours $\mathit{CX}$} \\
 \midrule
-\texttt{barenco\_tof\_3} & 76 & 28 & 16 & \textbf{38} (-50.0\%) & \textbf{16} & \textbf{16} \\
-\texttt{barenco\_tof\_4} & 146 & 56 & 28 & \textbf{62} (-57.5\%) & \textbf{24} & \textbf{28} \\
-\texttt{barenco\_tof\_5} & 218 & 84 & 40 & \textbf{86} (-60.6\%) & \textbf{32} & \textbf{40} \\
-\texttt{barenco\_tof\_10} & 578 & 224 & 100 & \textbf{180} (-68.9\%) & \textbf{72} & \textbf{74} \\
-\texttt{vbe\_adder\_3} & 190 & 70 & 24 & \textbf{84} (-55.8\%) & \textbf{24} & \textbf{44} \\
-\texttt{adder\_8} & 1,128 & 399 & 215 & \textbf{574} (-49.1\%) & \textbf{209} & \textbf{273} \\
-\texttt{hwb12} & 514,412 & 171,465 & 85,611 & \textbf{246,220} (-52.1\%) & \textbf{83,335} & \textbf{129,577} \\
+\texttt{barenco\_tof\_3.qasm} & 76 & 28 & 24 & 16 & \textbf{38} (-50.0\%) & \textbf{16} (-42.9\%) & \textbf{16} \\
+\texttt{barenco\_tof\_4.qasm} & 146 & 56 & 48 & 28 & \textbf{62} (-57.5\%) & \textbf{24} (-57.1\%) & \textbf{28} \\
+\texttt{barenco\_tof\_5.qasm} & 218 & 84 & 72 & 40 & \textbf{86} (-60.6\%) & \textbf{32} (-61.9\%) & \textbf{40} \\
+\texttt{barenco\_tof\_10.qasm} & 578 & 224 & 192 & 100 & \textbf{180} (-68.9\%) & \textbf{72} (-67.9\%) & \textbf{74} \\
+\texttt{tof\_3.qasm} & 57 & 21 & 18 & 15 & \textbf{33} (-42.1\%) & \textbf{15} (-28.6\%) & \textbf{12} \\
+\texttt{tof\_5.qasm} & 133 & 49 & 42 & 31 & \textbf{69} (-48.1\%) & \textbf{31} (-36.7\%) & \textbf{24} \\
+\texttt{tof\_10.qasm} & 323 & 119 & 102 & 71 & \textbf{159} (-50.8\%) & \textbf{71} (-40.3\%) & \textbf{54} \\
+\texttt{mod5\_4.qasm} & 79 & 28 & 28 & 16 & \textbf{51} (-35.4\%) & \textbf{16} (-42.9\%) & \textbf{22} \\
+\texttt{vbe\_adder\_3.qasm} & 190 & 70 & 70 & 24 & \textbf{84} (-55.8\%) & \textbf{24} (-65.7\%) & \textbf{44} \\
+\texttt{csum\_mux\_9.qasm} & 532 & 196 & 168 & 84 & \textbf{336} (-36.8\%) & \textbf{84} (-57.1\%) & \textbf{168} \\
+\texttt{adder\_8.qasm} & 1,128 & 399 & 409 & 215 & \textbf{574} (-49.1\%) & \textbf{209} (-47.6\%) & \textbf{273} \\
+\texttt{hwb12.qasm} & 514,412 & 171,465 & 191,803 & 85,611 & \textbf{246,220} (-52.1\%) & \textbf{83,335} (-51.4\%) & \textbf{129,577} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\begin{thebibliography}{10}
+On \texttt{barenco\_tof\_10.qasm}, standard phase-polynomial and ZX-calculus optimizers (\texttt{Feynman}, \texttt{VOQC}, \texttt{PyZX}, \texttt{QuiZX}, \texttt{tzap -O1}) reach 100 $T$-gates and 192 $\mathit{CNOT}$s; by pairing 30 of the 32 Toffolis into 9-gate Hermitian \textsc{RCCX} blocks and annihilating shared-target seams, our pass reaches \textbf{72 $T$-gates (-28\% below SOTA) and 74 $\mathit{CNOT}$s (-61.5\% below SOTA)} in 1.6 ms. On the 514,412-gate \texttt{hwb12.qasm} circuit, \textsc{HRTP} discovers 16,328 matched Hermitian \textsc{RCCX} pairs, reducing the circuit to \textbf{246,220 gates (100,426 fewer gates than \textsc{tzap}), 83,335 $T$-gates (2,276 fewer $T$-gates), and 129,577 $\mathit{CNOT}$s (62,226 fewer two-qubit gates)}.
+
+\section{Related Work and Conclusion}
+\label{sec:related}
+
+Amy et al.~\cite{amy2014} introduced \texttt{Tpar} and \texttt{Feynman}, tracking symbolic affine parities and path-sums across Clifford+$T$ circuits. Hietala et al.~\cite{hietala2021} formalized \texttt{not\_propagation} in Coq (\texttt{VOQC}). Albarghouthi~\cite{albarghouthi2026rand} randomized affine parity tracking in \textsc{tzap} (\texttt{PhaseFoldRand}) and extended it to $\mathrm{GF}(2^{128})$ field evaluations for $\mathit{CCX}$. Our work is the first to identify and repair the non-idempotence of $\mathrm{GF}(2^{128})$ field multiplication via Frobenius support correction, and the first to recover lifted $\mathit{CCX}$, \textsc{CAVA}, and \textsc{HRTP} equivalences in $O(n)$ time over pre-decomposed Clifford+$T$ circuits. Superoptimization and equality-saturation tools such as Quartz~\cite{xu2022quartz}, Queso~\cite{xu2023queso}, Quasar~\cite{yang2026quasar}, and \textsc{tzap}'s \texttt{SuperOpt}~\cite{albarghouthi2026murm} search over bounded subcircuits or e-graphs of 3--5 qubits and 6--25 gates, and are therefore blinded by pre-order ancilla shifting across 11-qubit cones in multi-controlled block-encoding circuits. \textsc{CAVA} and \textsc{HRTP} recover these long-range semantic equivalences in $O(n)$ time with zero lookup tables.
+
+\begin{thebibliography}{99}
 \bibitem{albarghouthi2026rand} Aws Albarghouthi. 2026. \emph{Linear-Time $T$-Gate Optimization via Random Abstraction}. arXiv:2605.13929 [cs.PL].
 \bibitem{albarghouthi2026murm} Aws Albarghouthi. 2026. \emph{Fast Quantum-Circuit Superoptimization}. IACR Cryptology ePrint Archive, Paper 2026/2115.
 \bibitem{amy2014} Matthew Amy, Dmitri Maslov, and Michele Mosca. 2014. Polynomial-time $T$-depth optimization of Clifford+$T$ circuits via matroid partitioning. \emph{IEEE TCAD} 33, 10 (2014), 1476--1489.
 \bibitem{bravyi2005} Sergey Bravyi and Alexei Kitaev. 2005. Universal quantum computation with ideal Clifford gates and noisy ancillas. \emph{Phys. Rev. A} 71, 2 (2005), 022316.
-\bibitem{gilyen2019qsvt} Andr\'as Gily\'en, Yuan Su, Guang Hao Low, and Nathan Wiebe. 2019. Quantum singular value transformation and beyond. In \emph{STOC 2019}. 193--204.
+\bibitem{fowler2012surface} Austin G. Fowler, Matteo Mariantoni, John M. Martinis, and Andrew N. Cleland. 2012. Surface codes: Towards practical large-scale quantum computation. \emph{Phys. Rev. A} 86, 3 (2012), 032324.
+\bibitem{gilyen2019qsvt} Andr\'as Gily\'en, Yuan Su, Guang Hao Low, and Nathan Wiebe. 2019. Quantum singular value transformation and beyond: exponential improvements for quantum matrix arithmetics. In \emph{Proceedings of STOC 2019}. 193--204.
 \bibitem{hietala2021} Kesha Hietala, Robert Rand, Shih-Han Hung, Xiaodi Wu, and Michael Hicks. 2021. A verified optimizer for quantum circuits. \emph{Proc. ACM Program. Lang.} 5, POPL (2021), 1--29.
 \bibitem{kissinger2020} Aleks Kissinger and John van de Wetering. 2020. Reducing the number of non-Clifford gates in quantum circuits. \emph{Phys. Rev. A} 102, 2 (2020), 022406.
+\bibitem{litinski2019} Daniel Litinski. 2019. A Game of Surface Codes: Large-Scale Quantum Computing with Lattice Surgery. \emph{Quantum} 3 (2019), 128.
+\bibitem{low2019qsp} Guang Hao Low and Isaac L. Chuang. 2019. Hamiltonian Simulation by Qubitization. \emph{Quantum} 3 (2019), 163.
 \bibitem{maslov2016} Dmitri Maslov. 2016. Advantages of using relative-phase Toffoli gates with an application to multiple control Toffoli optimization. \emph{Phys. Rev. A} 93, 2 (2016), 022311.
-\bibitem{selinger2013} Peter Selinger. 2013. Quantum circuits of $T$-depth one. \emph{Phys. Rev. A} 87, 4 (2013), 042302.
-\bibitem{shor1994} Peter W. Shor. 1994. Algorithms for quantum computation: discrete logarithms and factoring. In \emph{FOCS 1994}. 124--134.
+\bibitem{selinger2013} Peter Selinger. 2013. Quantum circuits of $T$-depth one. \emph{Phys. Rev. A} 87, 4 (2013), 042312.
+\bibitem{shor1994} Peter W. Shor. 1994. Algorithms for quantum computation: discrete logarithms and factoring. In \emph{Proceedings of FOCS 1994}. 124--134.
+\bibitem{xu2022quartz} Mingkuan Xu, Zikun Li, Oded Padon, Sina Lin, Jessica Pointing, Auguste Hirth, Henry Ma, Jens Palsberg, Alex Aiken, Umut A. Acar, and Zhihao Jia. 2022. Quartz: superoptimization of quantum circuits. In \emph{Proceedings of PLDI 2022}. 625--640.
+\bibitem{xu2023queso} Amanda Xu, Abtin Molavi, Lauren Pick, Swamit Tannu, and Aws Albarghouthi. 2023. Synthesizing Quantum-Circuit Optimizers. \emph{Proc. ACM Program. Lang.} 7, PLDI, Article 140 (2023).
+\bibitem{yang2026quasar} Ganxiang Yang, Paige Raun, Runzhou Tao, and Ronghui Gu. 2026. Equality Saturation for Quantum Circuit Optimization. \emph{Proc. ACM Program. Lang.} 10, PLDI, Article 176 (2026).
 \bibitem{yuan2026cobble} Charles Yuan. 2026. Cobble: Compiling Block Encodings for Quantum Computational Linear Algebra. \emph{Proc. ACM Program. Lang.} 10, PLDI, Article 177 (2026), 200--225.
 \end{thebibliography}
 
