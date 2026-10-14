@@ -232,84 +232,101 @@ def reduce_lifted(gates):
 
 
 def fast_cava(gates):
+    gates = list(gates)
+    non_ccx_wires = {a for op, _, args in gates if op != "ccx" for a in args}
+    first_touch = {}
+    for op, _, args in gates:
+        for a in args:
+            if a not in first_touch:
+                first_touch[a] = op == "ccx" and a == args[-1]
+    non_ccx_wires |= {a for a, ok in first_touch.items() if not ok}
     for _ in range(4):
         n = len(gates)
+        dirty = set(non_ccx_wires)
+        open_scope = {}
+        matched_end = {}
+        last_mod = {}
+        for idx, (op, _, args) in enumerate(gates):
+            if op == "ccx":
+                c1, c2, t = args
+                cp = frozenset((c1, c2))
+                if t not in dirty:
+                    if t not in open_scope:
+                        open_scope[t] = (idx, cp)
+                    else:
+                        s_idx, s_cp = open_scope[t]
+                        if cp == s_cp and all(
+                            last_mod.get(c, -1) < s_idx for c in s_cp
+                        ):
+                            matched_end[s_idx] = idx
+                            del open_scope[t]
+                        else:
+                            dirty.add(t)
+                            del open_scope[t]
+                last_mod[t] = idx
+            elif op in ("x", "h", "cx", "rz", "t", "tdg", "s", "sdg", "z"):
+                dirty.add(args[-1])
+                last_mod[args[-1]] = idx
         changed = False
         deleted = [False] * n
-        i = 0
-        while i < n:
-            if not deleted[i] and gates[i][0] == "ccx":
-                c_pair = set(gates[i][2][:2])
-                a_hi = gates[i][2][2]
-                j = i + 1
-                while j < n and j < i + 60:
-                    if deleted[j]:
-                        j += 1
-                        continue
-                    g = gates[j]
-                    if (
-                        g[0] == "ccx"
-                        and set(g[2][:2]) == c_pair
-                        and g[2][2] == a_hi
-                    ):
-                        break
-                    if g[0] in ("x", "h") and (
-                        g[2][0] in c_pair or g[2][0] == a_hi
-                    ):
-                        break
-                    if g[0] in ("cx", "ccx") and (
-                        g[2][-1] in c_pair or g[2][-1] == a_hi
-                    ):
-                        break
-                    if (
-                        g[0] == "ccx"
-                        and set(g[2][:2]) == c_pair
-                        and g[2][2] != a_hi
-                    ):
-                        a_lo = g[2][2]
-                        k = j + 1
-                        valid = True
-                        while k < n and k < j + 30:
-                            if deleted[k]:
-                                k += 1
+        for i in range(n):
+            if deleted[i] or i not in matched_end:
+                continue
+            m = matched_end[i]
+            if deleted[m] or (m - i > 5000):
+                continue
+            c_pair = frozenset(gates[i][2][:2])
+            a_hi = gates[i][2][2]
+            ok_outer = True
+            for p in range(i + 1, m):
+                if deleted[p]:
+                    continue
+                gp = gates[p]
+                if gp[0] in ("x", "h") and gp[2][0] in (c_pair | {a_hi}):
+                    ok_outer = False
+                    break
+                if gp[0] in ("cx", "ccx") and gp[2][-1] in (c_pair | {a_hi}):
+                    ok_outer = False
+                    break
+            if not ok_outer:
+                continue
+            j = i + 1
+            while j < m:
+                if not deleted[j] and j in matched_end:
+                    k = matched_end[j]
+                    if k < m and not deleted[k]:
+                        g_j = gates[j]
+                        if frozenset(g_j[2][:2]) == c_pair and g_j[2][2] != a_hi:
+                            a_lo = g_j[2][2]
+                            ok_inner = True
+                            for p in range(j + 1, k):
+                                if deleted[p]:
+                                    continue
+                                gp = gates[p]
+                                if gp[0] in ("x", "h") and gp[2][0] == a_lo:
+                                    ok_inner = False
+                                    break
+                                if gp[0] in ("cx", "ccx") and gp[2][-1] == a_lo:
+                                    ok_inner = False
+                                    break
+                            if ok_inner:
+                                for p in range(j + 1, k):
+                                    if not deleted[p]:
+                                        op_p, par_p, args_p = gates[p]
+                                        gates[p] = (
+                                            op_p,
+                                            par_p,
+                                            tuple(
+                                                a_hi if a == a_lo else a
+                                                for a in args_p
+                                            ),
+                                        )
+                                deleted[j] = True
+                                deleted[k] = True
+                                changed = True
+                                j = k + 1
                                 continue
-                            gk = gates[k]
-                            if (
-                                gk[0] == "ccx"
-                                and set(gk[2][:2]) == c_pair
-                                and gk[2][2] == a_lo
-                            ):
-                                break
-                            if gk[0] in ("x", "h") and gk[2][0] in (
-                                c_pair | {a_hi, a_lo}
-                            ):
-                                valid = False
-                                break
-                            if gk[0] in ("cx", "ccx") and gk[2][-1] in (
-                                c_pair | {a_hi, a_lo}
-                            ):
-                                valid = False
-                                break
-                            k += 1
-                        if valid and k < n and k < j + 30:
-                            for m_idx in range(j + 1, k):
-                                if not deleted[m_idx]:
-                                    op_m, p_m, args_m = gates[m_idx]
-                                    gates[m_idx] = (
-                                        op_m,
-                                        p_m,
-                                        tuple(
-                                            a_hi if a == a_lo else a
-                                            for a in args_m
-                                        ),
-                                    )
-                            deleted[j] = True
-                            deleted[k] = True
-                            changed = True
-                            j = k + 1
-                            continue
-                    j += 1
-            i += 1
+                j += 1
         if not changed:
             break
         gates = reduce_lifted(
@@ -421,10 +438,10 @@ def hrtp_pair_and_optimize(gates):
                 key, comp = canon(st[q])
                 k = quarter_map[op]
                 if key in groups:
-                    pi, _, pcomp, pk = groups[key]
+                    pi, pq, pcomp, pk = groups[key]
                     delta = k if (pcomp == comp) else (8 - k) % 8
-                    skip[pi] = True
-                    groups[key] = [i, q, comp, (pk + delta) % 8]
+                    skip[i] = True
+                    groups[key] = [pi, pq, pcomp, (pk + delta) % 8]
                 else:
                     groups[key] = [i, q, comp, k]
             elif op == "x":
@@ -448,7 +465,7 @@ def hrtp_pair_and_optimize(gates):
             elif k == 4:
                 replace[i] = [("z", "", (q,))]
             elif k == 5:
-                replace[i] = [("tdg", "", (q,)), ("z", "", (q,))]
+                replace[i] = [("t", "", (q,)), ("z", "", (q,))]
             elif k == 6:
                 replace[i] = [("sdg", "", (q,))]
             elif k == 7:

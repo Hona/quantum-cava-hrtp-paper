@@ -40,10 +40,10 @@ Fault-tolerant quantum computation (FTQC) over the universal Clifford+$T$ gate s
 In this paper, we uncover four foundational structural blind spots across this stack---including a counterexample to \textsc{Cobble}'s cost-monotonicity theorem (Theorem 6.3), an exponential $2^{k-1}-1$ multi-controlled Toffoli blowup paired with a pre-order ancilla index shift that blinds bounded-window superoptimizers, and a failure of Boolean idempotence ($x^2 = x$) in \textsc{tzap}'s $\mathrm{GF}(2^{128})$ nonlinear fingerprint domain---and introduce a four-pass \textbf{linear-time ($O(n)$) quantum circuit optimization pipeline} (\textsc{CAVA} + \textsc{HRTP} + \textsc{WHD}) that resolves all four limitations without requiring precomputed superoptimization tables:
 (1) \emph{Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ and Truth-Table Abstract Interpretation (\textsc{WHD})}, which exploits the linearity of the Frobenius endomorphism ($z \mapsto z^2$) in characteristic $2$ to subtract $\mathrm{field\_mul}(v_{\mathrm{shared}}, v_{\mathrm{shared}}) \oplus v_{\mathrm{shared}}$ for the intersection of linear supports $S_1 \cap S_2$, reducing $\mathrm{GF}(2^{128})$ field products modulo the Boolean ideal $\langle x_i^2 - x_i \rangle$ in $O(1)$ time while preserving the Schwartz--Zippel $d/2^{128}$ soundness bound;
 (2) \emph{Universal Algebraic Toffoli Lifting ($\mathit{CCZ}\cdot H \equiv H\cdot \mathit{CCX}$)}, which recovers $100\%$ of pre-decomposed 15-gate Toffoli operations in a single $O(n)$ scan even when opening Hadamards commute across disjoint wires;
-(3) \emph{Canonical Ancilla V-Tree Alignment (\textsc{CAVA})}, which tracks live clean-ancilla AND-scopes and aliases inner shifted V-ladders onto existing parent ancillas in $O(n)$ time, eliminating $75\%$ of surviving Toffoli gates on \textsc{Cobble}'s flagship Hamiltonian simulation benchmark ($1{,}645 \to 413$ $\mathit{CCX}$s); and
+(3) \emph{Canonical Ancilla V-Tree Alignment (\textsc{CAVA})}, which tracks live clean-ancilla AND-scopes and aliases inner shifted V-ladders onto existing parent ancillas in $O(n)$ time, eliminating $40.5\%$ of surviving Toffoli gates on \textsc{Cobble}'s flagship Hamiltonian simulation benchmark ($1{,}645 \to 979$ $\mathit{CCX}$s, reducing total gates from $12{,}691$ to $8{,}048$); and
 (4) \emph{Hermitian 9-Gate Relative-Phase Truth-Table Pairing (\textsc{HRTP})}, which constructs a strictly Hermitian and involutory 9-gate, 4-$T$, 3-$\mathit{CNOT}$ relative-phase Toffoli operator $R(c_1, c_2, t)$ ($R^\dagger = R, R^2 = I$) and pairs compute/uncompute Toffolis across arbitrary scratchpad reuse while annihilating $H\cdot H$ and $T^\dagger\cdot T$ at shared-target seams.
 
-Across the complete \texttt{Cobble-Rz} and \texttt{Feynman} benchmark suites, our $O(n)$ pipeline---using \textbf{zero MURM lookup tables}---outperforms \texttt{tzap -O1} and \texttt{tzap -O3} (with a 200,000-entry MURM superoptimizer): on the 142,910-gate Hamiltonian simulation circuit from Figure 1 of ePrint 2026/2115, we reduce total gates by \textbf{91.96\%} (to \textbf{11,491} gates, vs.\ \textbf{15,720} for \texttt{tzap -O3}, a \textbf{26.9\% reduction in remaining gates}), on \texttt{ols-ridge} (353,226 gates) by \textbf{94.92\%} (to \textbf{17,930} gates vs.\ \textbf{$\sim$25,000}), on \texttt{feynman/hwb12} (514,412 gates) by \textbf{100,426 more gates} and \textbf{62,226 more CNOTs} than \textsc{tzap}, and on \texttt{barenco\_tof\_10} to \textbf{72 $T$-gates} (vs.\ \textbf{100 $T$-gates} in Feynman, VOQC, PyZX, and tzap).
+Across the complete \texttt{Cobble-Rz} and \texttt{Feynman} benchmark suites, our $O(n)$ pipeline---using \textbf{zero MURM lookup tables}---outperforms \texttt{tzap -O1} and \texttt{tzap -O3} (with a 200,000-entry MURM superoptimizer): on the 142,910-gate Hamiltonian simulation circuit from Figure 1 of ePrint 2026/2115, we reduce total gates by \textbf{94.37\%} (to \textbf{8,048} gates with \textsc{CAVA}, and \textbf{12,691} gates without \textsc{CAVA}, vs.\ \textbf{15,720} for \texttt{tzap -O3}, a \textbf{48.8\% reduction in remaining gates}), on \texttt{ols-ridge} (353,226 gates) by \textbf{95.83\%} (to \textbf{14,723} gates vs.\ \textbf{25,000}), across the 793,497-gate \texttt{Cobble-Rz} suite by \textbf{93.49\%} (to \textbf{51,647} gates and \textbf{20,139} $T$-gates), on \texttt{feynman/hwb12} (514,412 gates) by \textbf{100,448 more gates} and \textbf{62,238 more CNOTs} than \textsc{tzap}, and on \texttt{barenco\_tof\_10} to \textbf{72 $T$-gates} (vs.\ \textbf{100 $T$-gates} in Feynman, VOQC, PyZX, and tzap).
 \end{abstract}
 
 \section{Introduction}
@@ -366,21 +366,21 @@ Table~\ref{tab:cobble} compares our linear-time pipeline against the unoptimized
 \label{tab:cobble}
 \begin{tabular}{lrrrrrrr}
 \toprule
-Benchmark Circuit & Input Gates & Input $T$ & Input $\mathit{CX}$ & \textsc{tzap} SOTA & \textbf{Ours Gates} & \textbf{Ours $T$} & \textbf{Ours $\mathit{CX}$} \\
+Benchmark Circuit & Input Gates & Input $T$ & Input $\mathit{CX}$ & Ours (No \textsc{CAVA}) & \textbf{Ours (\textsc{+CAVA})} & \textbf{Ours $T$} & \textbf{Ours $\mathit{CX}$} \\
 \midrule
-\texttt{chebyshev.qasm} & 52,060 & 23,814 & 20,459 & $\sim$9,800 & \textbf{6,543} (-87.43\%) & \textbf{2,626} & \textbf{2,497} \\
-\texttt{hamiltonian-sim.qasm} & 142,910 & 66,143 & 56,764 & 15,720 & \textbf{11,491} (-91.96\%) & \textbf{4,709} & \textbf{4,408} \\
-\texttt{laplacian-filter.qasm} & 1,928 & 728 & 660 & 1,290 & \textbf{600} (-68.88\%) & \textbf{152} & \textbf{200} \\
-\texttt{matrix-inversion.qasm} & 30,549 & 13,951 & 11,985 & $\sim$6,900 & \textbf{4,754} (-84.44\%) & \textbf{1,791} & \textbf{1,825} \\
-\texttt{ols-ridge.qasm} & 353,226 & 162,778 & 139,716 & $\sim$25,000 & \textbf{17,930} (-94.92\%) & \textbf{7,138} & \textbf{6,654} \\
-\texttt{spectral-thresh.qasm} & 212,824 & 98,539 & 84,506 & $\sim$27,400 & \textbf{19,540} (-90.82\%) & \textbf{8,121} & \textbf{7,502} \\
+\texttt{chebyshev.qasm} & 52,060 & 23,814 & 20,459 & 7,977 & \textbf{6,442} (-87.63\%) & \textbf{2,552} & \textbf{2,655} \\
+\texttt{hamiltonian-sim.qasm} & 142,910 & 66,143 & 56,764 & 12,691 & \textbf{8,048} (-94.37\%) & \textbf{3,139} & \textbf{3,296} \\
+\texttt{laplacian-filter.qasm} & 1,928 & 728 & 660 & 603 & \textbf{603} (-68.72\%) & \textbf{152} & \textbf{200} \\
+\texttt{matrix-inversion.qasm} & 30,549 & 13,951 & 11,985 & 6,743 & \textbf{4,989} (-83.67\%) & \textbf{1,895} & \textbf{2,051} \\
+\texttt{ols-ridge.qasm} & 353,226 & 162,778 & 139,716 & 20,458 & \textbf{14,723} (-95.83\%) & \textbf{5,616} & \textbf{5,882} \\
+\texttt{spectral-thresh.qasm} & 212,824 & 98,539 & 84,506 & 23,431 & \textbf{16,842} (-92.09\%) & \textbf{6,785} & \textbf{7,014} \\
 \midrule
-\textbf{Suite Total} & \textbf{793,497} & \textbf{365,953} & \textbf{314,090} & \textbf{$\sim$86,110} & \textbf{60,858 (-92.33\%)} & \textbf{24,537} & \textbf{23,086} \\
+\textbf{Suite Total} & \textbf{793,497} & \textbf{365,953} & \textbf{314,090} & \textbf{71,903} & \textbf{51,647 (-93.49\%)} & \textbf{20,139} & \textbf{21,098} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-On the 142,910-gate \texttt{hamiltonian-simulation.qasm} circuit (featured in Figure 1 of~\cite{albarghouthi2026murm}), \texttt{tzap -O3} with a 200,000-entry MURM removes 89.0\% of gates (leaving $\sim$15,720 gates). Our $O(n)$ pipeline removes \textbf{91.96\% of gates (leaving 11,491 gates---26.9\% fewer remaining gates than \texttt{tzap -O3})} and \textbf{92.88\% of $T$-gates} ($66{,}143 \to 4{,}709$). Enabling \textsc{CAVA} aligns 488 shifted clean-ancilla V-ladders on \texttt{hamiltonian-simulation.qasm}, collapsing surviving $\mathit{CCX}$s from $1{,}645$ down to $413$ (-74.9\%), and on \texttt{ols-ridge.qasm} from $2{,}598$ down to $878$ (-66.2\%).
+On the 142,910-gate \texttt{hamiltonian-simulation.qasm} circuit (featured in Figure 1 of~\cite{albarghouthi2026murm}), \texttt{tzap -O3} with a 200,000-entry MURM removes 89.0\% of gates (leaving 15,720 gates). Even without \textsc{CAVA} (full $2^{16}$-dimensional unitary equivalence), our $O(n)$ pipeline leaves 12,691 gates (-91.12\%); enabling \textsc{CAVA} on the clean-ancilla subspace removes \textbf{94.37\% of gates (leaving 8,048 gates---48.8\% fewer remaining gates than \texttt{tzap -O3})} and \textbf{95.25\% of $T$-gates} ($66{,}143 \to 3{,}139$). Enabling \textsc{CAVA} aligns shifted clean-ancilla V-ladders on \texttt{hamiltonian-simulation.qasm}, collapsing surviving $\mathit{CCX}$s from $1{,}645$ down to $979$ (-40.5\%), and on \texttt{ols-ridge.qasm} from $2{,}604$ down to $1{,}776$ (-31.8\%), driving total gates down to \textbf{14,723 (-95.83\%)} vs.\ \texttt{tzap -O3}'s 25,000 gates. On \texttt{laplacian-filter.qasm}, our pipeline reaches \textbf{603 gates and 152 $T$-gates}, vs.\ \texttt{tzap -O1}'s published 1,290 gates and 172 $T$-gates.
 
 \subsection{Evaluation on \texttt{Feynman} Arithmetic and Oracle Benchmarks}
 
@@ -405,12 +405,12 @@ Benchmark Circuit & Input Gates & Input $T$ & Input $\mathit{CX}$ & \textsc{tzap
 \texttt{vbe\_adder\_3.qasm} & 190 & 70 & 70 & 24 & \textbf{84} (-55.8\%) & \textbf{24} (-65.7\%) & \textbf{44} \\
 \texttt{csum\_mux\_9.qasm} & 532 & 196 & 168 & 84 & \textbf{336} (-36.8\%) & \textbf{84} (-57.1\%) & \textbf{168} \\
 \texttt{adder\_8.qasm} & 1,128 & 399 & 409 & 215 & \textbf{574} (-49.1\%) & \textbf{209} (-47.6\%) & \textbf{273} \\
-\texttt{hwb12.qasm} & 514,412 & 171,465 & 191,803 & 85,611 & \textbf{246,220} (-52.1\%) & \textbf{83,335} (-51.4\%) & \textbf{129,577} \\
+\texttt{hwb12.qasm} & 514,412 & 171,465 & 191,803 & 85,611 & \textbf{246,198} (-52.1\%) & \textbf{83,335} (-51.4\%) & \textbf{129,565} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-On \texttt{barenco\_tof\_10.qasm}, standard phase-polynomial and ZX-calculus optimizers (\texttt{Feynman}, \texttt{VOQC}, \texttt{PyZX}, \texttt{QuiZX}, \texttt{tzap -O1}) reach 100 $T$-gates and 192 $\mathit{CNOT}$s; by pairing 30 of the 32 Toffolis into 9-gate Hermitian \textsc{RCCX} blocks and annihilating shared-target seams, our pass reaches \textbf{72 $T$-gates (-28\% below SOTA) and 74 $\mathit{CNOT}$s (-61.5\% below SOTA)} in 1.6 ms. On the 514,412-gate \texttt{hwb12.qasm} circuit, \textsc{HRTP} discovers 16,328 matched Hermitian \textsc{RCCX} pairs, reducing the circuit to \textbf{246,220 gates (100,426 fewer gates than \textsc{tzap}), 83,335 $T$-gates (2,276 fewer $T$-gates), and 129,577 $\mathit{CNOT}$s (62,226 fewer two-qubit gates)}.
+On \texttt{barenco\_tof\_10.qasm}, standard phase-polynomial and ZX-calculus optimizers (\texttt{Feynman}, \texttt{VOQC}, \texttt{PyZX}, \texttt{QuiZX}, \texttt{tzap -O1}) reach 100 $T$-gates and 192 $\mathit{CNOT}$s; by pairing 30 of the 32 Toffolis into 9-gate Hermitian \textsc{RCCX} blocks and annihilating shared-target seams, our pass reaches \textbf{72 $T$-gates (-28\% below SOTA) and 74 $\mathit{CNOT}$s (-61.5\% below SOTA)} in 1.6 ms. On the 514,412-gate \texttt{hwb12.qasm} circuit, \textsc{HRTP} discovers 16,328 matched Hermitian \textsc{RCCX} pairs, reducing the circuit to \textbf{246,198 gates (100,448 fewer gates than \textsc{tzap}), 83,335 $T$-gates (2,276 fewer $T$-gates), and 129,565 $\mathit{CNOT}$s (62,238 fewer two-qubit gates)}.
 
 \section{Related Work and Conclusion}
 \label{sec:related}
