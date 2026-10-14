@@ -13,7 +13,6 @@ Full manuscript, formal proofs (Lean 4 + exact $2^n \times 2^n$ unitary verifica
 - [`src/cava_hrtp_optimizer.py`](src/cava_hrtp_optimizer.py) — Reference implementation of the four-pass $O(n)$ optimizer.
 - [`proofs/HermitianRCCX.lean`](proofs/HermitianRCCX.lean) — Lean 4 formalization of the Frobenius-Corrected Multilinear $\mathrm{GF}(2^{128})$ identity and the 9-gate Hermitian `RCCX` compositional cancellation theorem ($R^\dagger = R$, $R^2 = I$, $R \cdot D \cdot R = \mathit{CCX} \cdot D \cdot \mathit{CCX}$).
 - [`tests/verify_all_proofs.py`](tests/verify_all_proofs.py) — Self-contained verification suite proving all counterexamples and unitary equivalences.
-- [`web/index.html`](web/index.html) — Interactive visual workbench for exploring the algorithms and counterexamples.
 
 ---
 
