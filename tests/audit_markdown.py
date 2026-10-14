@@ -37,7 +37,13 @@ for path in files:
                 assert "\\land" not in m.group(1) and "\\oplus" not in m.group(1), f"LaTeX in backticks on line {idx} of {path}: {m.group(0)}"
     assert not in_code, f"Unclosed code block in {path}"
     assert not in_math_block, f"Unclosed $$ block in {path}"
-    print(f"[AUDIT PASS] {path} ({len(lines)} lines)")
+    blocks = re.findall(r"\$\$[\s\S]*?\$\$|\$[^$\n]+\$", text)
+    g_total = sum(b.count("{") + 1 for b in blocks)
+    assert g_total < 1500, f"GitHub MathJax budget exceeded in {path}: g_total={g_total} >= 1500"
+    for b in blocks:
+        for bad_tok in (r"\;", r"\,", r"\{", r"\}", r"[\![", r"]\!]", r"\llbracket", r"\rrbracket", r"\mathbin{\&}"):
+            assert bad_tok not in b, f"CommonMark-unsafe token {bad_tok} in {path}: {b}"
+    print(f"[AUDIT PASS] {path} ({len(lines)} lines, {len(blocks)} math blocks, g_total={g_total})")
 
 tex_path = "C:/tmp/opencode/arxiv-upload/main.tex"
 with open(tex_path, encoding="utf-8") as f:
