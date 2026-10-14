@@ -38,3 +38,36 @@ for path in files:
     assert not in_code, f"Unclosed code block in {path}"
     assert not in_math_block, f"Unclosed $$ block in {path}"
     print(f"[AUDIT PASS] {path} ({len(lines)} lines)")
+
+tex_path = "C:/tmp/opencode/arxiv-upload/main.tex"
+with open(tex_path, encoding="utf-8") as f:
+    tex = f.read()
+
+for idx, line in enumerate(tex.splitlines(), 1):
+    clean = line.replace("\\%", "")
+    assert "%" not in clean, f"Unescaped % comment on line {idx}: {line}"
+
+clean_braces = tex.replace("\\{", "").replace("\\}", "")
+assert clean_braces.count("{") == clean_braces.count("}"), "Unbalanced braces"
+
+stack = []
+for m in re.finditer(r"\\(begin|end)\{([^}]+)\}", tex):
+    kind, env = m.group(1), m.group(2)
+    if kind == "begin":
+        stack.append(env)
+    else:
+        assert stack and stack[-1] == env, f"Mismatched end {env}"
+        stack.pop()
+assert not stack, f"Unclosed environments: {stack}"
+
+bibitems = set(re.findall(r"\\bibitem\{([^}]+)\}", tex))
+for m in re.finditer(r"\\cite\{([^}]+)\}", tex):
+    for k in m.group(1).split(","):
+        assert k.strip() in bibitems, f"Missing bibitem for {k}"
+
+labels = set(re.findall(r"\\label\{([^}]+)\}", tex))
+for m in re.finditer(r"\\ref\{([^}]+)\}", tex):
+    assert m.group(1).strip() in labels, f"Missing label for {m.group(1)}"
+
+print(f"[LATEX AUDIT PASS] {tex_path} ({len(tex.splitlines())} lines, {len(bibitems)} bibitems, {len(labels)} labels, 0 comments)")
+

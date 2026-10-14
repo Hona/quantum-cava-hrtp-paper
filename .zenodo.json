@@ -1,0 +1,21 @@
+{
+  "title": "Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction",
+  "upload_type": "publication",
+  "publication_type": "workingpaper",
+  "creators": [
+    {
+      "name": "Parker, Luke",
+      "affiliation": "Anomaly"
+    }
+  ],
+  "description": "Full manuscript, Lean 4 formal proofs, reference O(n) optimizer (CAVA + HRTP + WHD), and unitary verification suite for linear-time quantum circuit superoptimization.",
+  "access_right": "open",
+  "license": "CC-BY-4.0",
+  "keywords": [
+    "quantum computing",
+    "programming languages",
+    "quantum circuit superoptimization",
+    "Clifford+T",
+    "block encodings"
+  ]
+}

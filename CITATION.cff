@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software or manuscript, please cite it as below."
+title: "Linear-Time Quantum Circuit Superoptimization via Canonical Ancilla Alignment, Hermitian Relative-Phase Pairing, and Frobenius-Corrected Boolean Abstraction"
+authors:
+  - family-names: "Parker"
+    given-names: "Luke"
+    affiliation: "Anomaly"
+date-released: 2026-10-14
+version: "1.0.0"
+license: "MIT"
+repository-code: "https://github.com/Hona/quantum-cava-hrtp-paper"
+keywords:
+  - quantum computing
+  - programming languages
+  - quantum circuit optimization
+  - Clifford+T
+  - block encodings
+  - abstract interpretation
